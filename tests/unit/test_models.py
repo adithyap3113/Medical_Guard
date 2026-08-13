@@ -16,13 +16,14 @@ from medguard.models import (
     RetrievalResult,
     RetrieverKind,
 )
+from medguard.storage.schema import make_chunk_id
 
 
 def make_chunk(
     doc: str = "who_hypertension_2021", index: int = 0, text: str = "Some text."
 ) -> Chunk:
     return Chunk(
-        chunk_id=Chunk.make_id(doc, index, text),
+        chunk_id=make_chunk_id(doc, index),
         document_id=doc,
         text=text,
         chunk_index=index,
@@ -32,21 +33,44 @@ def make_chunk(
 
 
 class TestChunk:
+    def test_there_is_only_one_chunk_id_scheme(self) -> None:
+        """Phase 2 had two. `Chunk.make_id` was deleted in Phase 3A.
+
+        Two id schemes for one concept is how a vector store and a relational table end
+        up keyed differently. `make_chunk_id` is position-addressed and is now the only
+        one; version identity lives in `document_id`, not in a digest of the text.
+        """
+        assert not hasattr(Chunk, "make_id")
+
     def test_ids_are_deterministic(self) -> None:
         """Re-ingesting unchanged content must produce identical ids.
 
         This is what makes ingestion idempotent; random ids would let a second run
         silently duplicate the corpus and quietly distort every retrieval metric.
         """
-        a = Chunk.make_id("doc", 3, "identical text")
-        b = Chunk.make_id("doc", 3, "identical text")
-        assert a == b
+        assert make_chunk_id("doc", 3) == make_chunk_id("doc", 3)
 
-    def test_changed_text_changes_the_id(self) -> None:
-        assert Chunk.make_id("doc", 3, "original") != Chunk.make_id("doc", 3, "edited")
+    def test_edited_text_keeps_the_id_so_the_chunk_is_overwritten(self) -> None:
+        """The deliberate consequence of position-addressing.
+
+        A content-addressed id would make an edited chunk a *new* chunk, so re-ingesting
+        a revised document would leave the superseded text in the index, still
+        retrievable and still citable. Position-addressing overwrites it instead.
+        """
+        original = Chunk(
+            chunk_id=make_chunk_id("doc", 3), document_id="doc", text="original", chunk_index=3
+        )
+        revised = Chunk(
+            chunk_id=make_chunk_id("doc", 3), document_id="doc", text="edited", chunk_index=3
+        )
+        assert original.chunk_id == revised.chunk_id
 
     def test_changed_position_changes_the_id(self) -> None:
-        assert Chunk.make_id("doc", 3, "text") != Chunk.make_id("doc", 4, "text")
+        assert make_chunk_id("doc", 3) != make_chunk_id("doc", 4)
+
+    def test_document_versions_stay_distinguishable(self) -> None:
+        """Position 0 of the 2019 edition is not position 0 of the 2022 edition."""
+        assert make_chunk_id("icmr_amr_2019", 0) != make_chunk_id("icmr_amr_2022", 0)
 
     def test_empty_text_is_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -66,7 +90,31 @@ class TestChunk:
 class TestDocumentMeta:
     def test_minimal_document_is_valid(self) -> None:
         meta = DocumentMeta(document_id="d", title="T", source_path="data/raw/d.pdf")
-        assert meta.ingested_at.tzinfo is not None, "timestamps must be timezone-aware"
+        assert meta.title == "T"
+
+    def test_ingested_at_is_none_until_ingestion_runs(self) -> None:
+        """Downloading a file does not ingest it.
+
+        Phase 1 defaulted this to `now`, which meant every freshly-downloaded document
+        claimed to have been ingested at the moment it was recorded. `retrieved_at`
+        answers "when did we fetch it?"; `ingested_at` answers "when did we index it?",
+        and before Phase 3 the honest answer to the second is "not yet".
+        """
+        meta = DocumentMeta(document_id="d", title="T", source_path="data/raw/d.pdf")
+        assert meta.ingested_at is None
+        assert meta.retrieved_at is None
+
+    def test_timestamps_are_timezone_aware_when_set(self) -> None:
+        from datetime import UTC, datetime
+
+        meta = DocumentMeta(
+            document_id="d",
+            title="T",
+            source_path="data/raw/d.pdf",
+            retrieved_at=datetime.now(UTC),
+        )
+        assert meta.retrieved_at is not None
+        assert meta.retrieved_at.tzinfo is not None
 
     def test_implausible_year_is_rejected(self) -> None:
         with pytest.raises(ValidationError):

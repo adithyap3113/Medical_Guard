@@ -6,22 +6,55 @@ matters on this machine. PostgreSQL is one environment variable away:
     DATABASE_URL=postgresql+psycopg://medguard:medguard@localhost:5432/medguard
 
 Both paths go through the same SQLAlchemy engine, so the application code cannot tell
-the difference and nothing has to be rewritten to switch. Phase 1 defines the engine
-and a health check; ORM tables arrive with ingestion in Phase 3, when there is
-something to store.
+the difference and nothing has to be rewritten to switch. Phase 1 defined the engine
+and a health check; Phase 2 adds the declarative metadata and a session factory, so
+Alembic has something to migrate and ingestion has somewhere to write.
+
+``Base`` is re-exported here rather than defined here. The tables live in
+:mod:`medguard.storage.schema`, but ``migrations/env.py`` and application code both
+want one obvious import path for the metadata, and importing this module guarantees
+the table definitions have been registered on it.
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, MetaData, create_engine, event, text
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from medguard.config import Settings, get_settings
+from medguard.storage.schema import Base
 
-__all__ = ["Database", "DatabaseHealth"]
+__all__ = ["Base", "Database", "DatabaseHealth", "metadata"]
+
+#: What Alembic autogenerate compares the live database against.
+metadata: MetaData = Base.metadata
+
+
+def _enable_sqlite_foreign_keys(engine: Engine) -> None:
+    """Turn on foreign-key enforcement for every SQLite connection.
+
+    SQLite ignores foreign keys unless ``PRAGMA foreign_keys=ON`` is issued, and the
+    pragma is per-connection rather than per-database. Without this, the ``ON DELETE
+    CASCADE`` between chunks and documents is inert: deleting a document leaves its
+    chunks behind as orphans that still match retrieval queries. The schema would look
+    correct while enforcing nothing -- the worst combination -- and PostgreSQL would
+    behave differently from SQLite for the same code.
+    """
+
+    @event.listens_for(engine, "connect")
+    def _set_pragma(dbapi_connection: Any, _record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 
 class DatabaseHealth(BaseModel):
@@ -46,6 +79,7 @@ class Database:
     def __init__(self, settings: Settings | None = None) -> None:
         self._s = settings if settings is not None else get_settings()
         self._engine: Engine | None = None
+        self._session_factory: sessionmaker[Session] | None = None
 
     @property
     def url(self) -> str:
@@ -72,9 +106,51 @@ class Database:
                     connect_args={"check_same_thread": False},
                     poolclass=StaticPool if is_memory else None,
                 )
+                _enable_sqlite_foreign_keys(self._engine)
             else:
                 self._engine = create_engine(self.url, pool_pre_ping=True)
         return self._engine
+
+    @property
+    def session_factory(self) -> sessionmaker[Session]:
+        """Configured session factory, built once per :class:`Database`.
+
+        ``expire_on_commit=False`` because the common pattern here is "write rows, then
+        report on them". With the default, every attribute access after ``commit()``
+        issues a fresh SELECT, which turns a summary line into N queries.
+        """
+        if self._session_factory is None:
+            self._session_factory = sessionmaker(
+                bind=self.engine, expire_on_commit=False, future=True
+            )
+        return self._session_factory
+
+    @contextmanager
+    def session(self) -> Iterator[Session]:
+        """A transactional scope: commit on success, roll back on any exception.
+
+        Callers get a session that cannot leak a half-applied write, which matters
+        for ingestion where one document failing must not leave its chunks behind.
+        """
+        session = self.session_factory()
+        try:
+            yield session
+            session.commit()
+        except BaseException:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def create_all(self) -> None:
+        """Create every table directly, bypassing migrations.
+
+        For tests and throwaway databases only. Real databases are built by
+        ``medguard db upgrade`` so that their schema has a recorded version; a
+        database created this way has no Alembic stamp and will confuse the next
+        migration.
+        """
+        Base.metadata.create_all(self.engine)
 
     def health(self) -> DatabaseHealth:
         """Run ``SELECT 1``. Never raises."""
@@ -102,3 +178,4 @@ class Database:
         if self._engine is not None:
             self._engine.dispose()
             self._engine = None
+        self._session_factory = None

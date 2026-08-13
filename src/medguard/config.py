@@ -37,8 +37,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
     "AppSettings",
+    "CorpusSettings",
     "EmbeddingSettings",
     "GeminiSettings",
+    "IngestionSettings",
     "LangfuseSettings",
     "QdrantSettings",
     "Settings",
@@ -194,7 +196,7 @@ class EmbeddingSettings(BaseSettings):
     """Embedding configuration (env prefix ``EMBEDDING_``).
 
     Declared in Phase 1 but not yet *used*: no model is loaded or downloaded until
-    Phase 4. It lives here now so the collection-naming scheme below is fixed before
+    Phase 3B. It lives here now so the collection-naming scheme below is fixed before
     any data is indexed -- changing it later would invalidate an existing index.
     """
 
@@ -216,7 +218,192 @@ class EmbeddingSettings(BaseSettings):
         description="Sparse retrieval model. BM25 handles exact drug names, dosages "
         "and abbreviations that dense vectors tend to smooth over.",
     )
-    batch_size: int = Field(default=32, gt=0, le=512)
+    batch_size: int = Field(
+        default=8,
+        gt=0,
+        le=512,
+        description=(
+            "Texts embedded per forward pass. Lowered from 32 in Phase 3A after doing "
+            "the arithmetic rather than copying a common default. Peak transient "
+            "allocation for BGE-small attention is roughly "
+            "batch x 12 heads x 512 tokens x 512 tokens x 4 bytes: at 32 that is about "
+            "402 MB in one spike, on a machine measured at 0.84 GB available. At 8 it "
+            "is about 100 MB. Raising this trades a machine that finishes ingestion for "
+            "one that is killed partway through -- which leaves a half-populated "
+            "collection, not a clean failure. Raise it only after re-measuring."
+        ),
+    )
+
+
+class IngestionSettings(BaseSettings):
+    """Parse-and-chunk configuration (env prefix ``INGESTION_``).
+
+    Declared in Phase 3A, *used* in Phase 3B. The values exist now because the chunking
+    parameters are the single most consequential retrieval decision in the project and
+    they deserve to be argued about in a config file rather than discovered as literals
+    buried in a chunker.
+
+    Sizes are in characters, not tokens, deliberately: the chunker runs before any
+    tokeniser is loaded, and a character budget is checkable without one. BGE-small
+    truncates at 512 tokens, which for English prose is roughly 2,000 characters --
+    hence ``chunk_max_chars``. A chunk above that is not an error, it is *silently
+    truncated at embedding time*, so half the text is indexed and nobody is told.
+    """
+
+    model_config = SettingsConfigDict(
+        **_BASE_CONFIG,
+        env_prefix="INGESTION_",
+        env_file=_env_file(),
+    )
+
+    chunk_size: int = Field(
+        default=1600,
+        gt=0,
+        le=8192,
+        description="Target chunk length in characters. Sized to sit under the "
+        "embedding model's 512-token ceiling with headroom for the dense prose and "
+        "long drug names typical of clinical guidance.",
+    )
+    chunk_overlap: int = Field(
+        default=200,
+        ge=0,
+        le=4096,
+        description="Characters repeated between adjacent chunks, so a recommendation "
+        "split across a boundary is still wholly present in one of them.",
+    )
+    chunk_min_chars: int = Field(
+        default=200,
+        ge=0,
+        description="Chunks shorter than this are merged into a neighbour. A 30-character "
+        "fragment ('Table 3. Continued') embeds to a near-meaningless vector that "
+        "still competes for a retrieval slot.",
+    )
+    chunk_max_chars: int = Field(
+        default=2000,
+        gt=0,
+        le=16_384,
+        description="Hard ceiling. Above this the embedding model truncates silently, "
+        "so the chunker must split rather than let that happen unannounced.",
+    )
+    strip_running_headers: bool = Field(
+        default=True,
+        description="Remove repeated page headers and footers before chunking. Left in, "
+        "'MMWR / Recommendations and Reports' appears on all 60 pages and becomes the "
+        "highest-IDF-scoring text in the document for no useful reason.",
+    )
+    dry_run_sample_chunks: int = Field(
+        default=5,
+        ge=0,
+        le=100,
+        description="How many chunks `medguard ingest --dry-run` prints for inspection. "
+        "Reading actual chunk boundaries is the only reliable way to catch a chunker "
+        "that is technically working and semantically useless.",
+    )
+    batch_size: int = Field(
+        default=8,
+        gt=0,
+        le=512,
+        description="Documents processed per ingestion batch. Matches the embedding "
+        "batch size for the same memory reason; see EmbeddingSettings.batch_size.",
+    )
+
+    @model_validator(mode="after")
+    def _check_size_ordering(self) -> IngestionSettings:
+        if self.chunk_overlap >= self.chunk_size:
+            # Overlap >= size means each chunk re-emits its predecessor entirely and
+            # the chunker either never advances or duplicates the whole document.
+            msg = (
+                f"INGESTION_CHUNK_OVERLAP ({self.chunk_overlap}) must be < "
+                f"INGESTION_CHUNK_SIZE ({self.chunk_size})"
+            )
+            raise ValueError(msg)
+        if self.chunk_max_chars < self.chunk_size:
+            msg = (
+                f"INGESTION_CHUNK_MAX_CHARS ({self.chunk_max_chars}) must be >= "
+                f"INGESTION_CHUNK_SIZE ({self.chunk_size})"
+            )
+            raise ValueError(msg)
+        if self.chunk_min_chars > self.chunk_size:
+            msg = (
+                f"INGESTION_CHUNK_MIN_CHARS ({self.chunk_min_chars}) must be <= "
+                f"INGESTION_CHUNK_SIZE ({self.chunk_size})"
+            )
+            raise ValueError(msg)
+        return self
+
+
+class CorpusSettings(BaseSettings):
+    """Source-document corpus configuration (env prefix ``CORPUS_``).
+
+    Paths are resolved against the project root when relative, so ``medguard corpus
+    verify`` behaves the same from any working directory -- the same reasoning as
+    :func:`project_root` applies to ``.env``.
+    """
+
+    model_config = SettingsConfigDict(
+        **_BASE_CONFIG,
+        env_prefix="CORPUS_",
+        env_file=_env_file(),
+    )
+
+    data_dir: Path = Field(
+        default=Path("data/raw"), description="Where downloaded source PDFs are stored."
+    )
+    sources_file: Path = Field(
+        default=Path("data/sources.yaml"),
+        description="Editable corpus definition. Deliberately not hard-coded in Python "
+        "so the corpus can change without a code review.",
+    )
+    manifest_file: Path = Field(
+        default=Path("data/manifest.json"),
+        description="Generated provenance record. Committed; the PDFs are not.",
+    )
+    user_agent: str = Field(
+        default=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        ),
+        description="Several publishers (cdc.gov among them) return HTTP 403 to a "
+        "default client string. A real browser UA is required to reach public PDFs.",
+    )
+    download_timeout_s: float = Field(default=180.0, gt=0, le=1800)
+    max_retries: int = Field(
+        default=2, ge=0, le=10, description="Retries after the first attempt, not total attempts."
+    )
+    retry_initial_backoff_s: float = Field(default=2.0, gt=0, le=60)
+    retry_max_backoff_s: float = Field(default=30.0, gt=0, le=300)
+    min_pdf_bytes: int = Field(
+        default=10_000,
+        ge=0,
+        description="Floor below which a 'PDF' is assumed to be an error page or a "
+        "truncated transfer rather than a document.",
+    )
+
+    def resolved(self, value: Path) -> Path:
+        """Anchor a relative configured path to the project root."""
+        return value if value.is_absolute() else project_root() / value
+
+    @property
+    def raw_dir(self) -> Path:
+        return self.resolved(self.data_dir)
+
+    @property
+    def sources_path(self) -> Path:
+        return self.resolved(self.sources_file)
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.resolved(self.manifest_file)
+
+    @model_validator(mode="after")
+    def _check_backoff_ordering(self) -> CorpusSettings:
+        if self.retry_max_backoff_s < self.retry_initial_backoff_s:
+            msg = (
+                f"CORPUS_RETRY_MAX_BACKOFF_S ({self.retry_max_backoff_s}) must be >= "
+                f"CORPUS_RETRY_INITIAL_BACKOFF_S ({self.retry_initial_backoff_s})"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class AppSettings(BaseSettings):
@@ -270,6 +457,8 @@ class Settings(BaseSettings):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
+    corpus: CorpusSettings = Field(default_factory=CorpusSettings)
 
     @property
     def collection_name(self) -> str:

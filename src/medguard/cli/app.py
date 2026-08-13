@@ -1,7 +1,7 @@
 """``medguard`` command-line entry point.
 
-Phase 1 implements ``doctor`` and ``serve``. ``ingest``, ``query`` and ``eval`` are
-declared with their real signatures but raise ``NotImplementedError``.
+Phases 1-2 implement ``doctor``, ``serve``, ``corpus`` and ``db``. ``ingest``, ``query``
+and ``eval`` are declared with their real signatures but raise ``NotImplementedError``.
 
 That is deliberate. The alternative -- omitting them until their phase -- hides the
 shape of the system, while a stub that silently returns nothing is worse than one that
@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.console import Console
 
 from medguard import __version__
+from medguard.cli.bootstrap import bootstrap as _bootstrap
+from medguard.cli.bootstrap import console, err_console
+from medguard.cli.corpus import corpus_app
+from medguard.cli.db import db_app
 from medguard.config import get_settings
-from medguard.logging import configure_logging
 from medguard.models import MEDICAL_DISCLAIMER, QueryStrategy
 
 __all__ = ["app"]
@@ -32,28 +34,8 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-console = Console()
-err_console = Console(stderr=True)
-
-
-def _bootstrap() -> None:
-    """Load settings and configure logging with secret redaction active.
-
-    Called at the start of every command. Registering the configured credentials with
-    the log redactor here means the very first log line is already protected -- there
-    is no window in which a secret could be printed.
-    """
-    settings = get_settings()
-    configure_logging(
-        level=settings.app.log_level,
-        fmt=settings.app.log_format,
-        secrets=[
-            settings.gemini.api_key,
-            settings.qdrant.api_key,
-            settings.langfuse.public_key,
-            settings.langfuse.secret_key,
-        ],
-    )
+app.add_typer(corpus_app)
+app.add_typer(db_app)
 
 
 def _version_callback(value: bool) -> None:

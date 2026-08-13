@@ -17,8 +17,7 @@ pure data, so it stays importable from tests with no infrastructure running.
 
 from __future__ import annotations
 
-import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -31,9 +30,12 @@ __all__ = [
     "Chunk",
     "Citation",
     "DocumentMeta",
+    "DocumentType",
+    "IngestionStatus",
     "QueryStrategy",
     "RetrievalResult",
     "RetrieverKind",
+    "SourceOrganization",
 ]
 
 #: Shown with every generated answer, in the API, and in the CLI.
@@ -82,25 +84,95 @@ class QueryStrategy(StrEnum):
     DECOMPOSITION = "decomposition"
 
 
+class SourceOrganization(StrEnum):
+    """The publishing body a corpus document came from.
+
+    A closed set rather than free text, because provenance drives citation display and
+    source-weighting later. ``"cdc"``, ``"CDC "`` and ``"Centers for Disease Control"``
+    arriving as three distinct publishers would fragment exactly the grouping this
+    field exists to enable.
+    """
+
+    CDC = "CDC"
+    NIH = "NIH"
+    NICE = "NICE"
+    WHO = "WHO"
+    PMC = "PMC"
+    ICMR = "ICMR"
+
+
+class DocumentType(StrEnum):
+    """What kind of document this is, which governs how much its claims weigh.
+
+    A clinical guideline represents a consensus position with graded recommendations;
+    a single systematic review does not, and a primary study certainly does not. The
+    corpus is deliberately guideline-shaped, and recording the type keeps that property
+    checkable instead of assumed -- and lets retrieval prefer guidance over commentary.
+    """
+
+    GUIDELINE = "guideline"
+    SYSTEMATIC_REVIEW = "systematic_review"
+    REVIEW = "review"
+    PROTOCOL = "protocol"
+    REFERENCE = "reference"
+
+
+class IngestionStatus(StrEnum):
+    """How far a document has progressed through the ingestion pipeline.
+
+    Ingestion is multi-stage and partially resumable. A single ``ingested`` boolean
+    cannot say whether a failure happened before or after embedding, which is the
+    difference between re-parsing a PDF and re-running an expensive embedding pass.
+    """
+
+    PENDING = "pending"
+    PARSED = "parsed"
+    CHUNKED = "chunked"
+    EMBEDDED = "embedded"
+    INDEXED = "indexed"
+    FAILED = "failed"
+
+
 class DocumentMeta(BaseModel):
     """Provenance for one source document.
 
     Provenance is a correctness requirement, not bookkeeping: a citation that cannot
     name its source document, publisher and version is not a citation. ``sha256``
     additionally makes re-ingestion idempotent and detects a source changing under us.
+
+    Two timestamps, deliberately: ``retrieved_at`` records when the bytes were fetched
+    from the publisher, ``ingested_at`` when this project last parsed them. They answer
+    different questions ("is our copy stale?" versus "is our index stale?"), and
+    collapsing them into one loses both answers.
     """
 
     model_config = ConfigDict(frozen=True)
 
     document_id: str = Field(description="Stable identifier, typically the filename stem.")
     title: str
-    source_path: str = Field(description="Path or URL the document was ingested from.")
+    source_path: str = Field(description="Local path the document was ingested from.")
+    source_url: str | None = Field(
+        default=None, description="Origin URL the document was downloaded from."
+    )
     publisher: str | None = Field(default=None, description="e.g. 'WHO', 'NIH'.")
     published_year: int | None = Field(default=None, ge=1800, le=2200)
+    publication_date: date | None = Field(
+        default=None,
+        description="Full publication date where the publisher states one. None means "
+        "'not stated by the source', never 'unknown, so guessed'.",
+    )
     licence: str | None = Field(default=None, description="Redistribution terms of the source.")
     sha256: str | None = Field(default=None, description="Content hash of the source file.")
+    file_size_bytes: int | None = Field(default=None, ge=0)
     page_count: int | None = Field(default=None, ge=0)
-    ingested_at: datetime = Field(default_factory=_utcnow)
+    retrieved_at: datetime | None = Field(
+        default=None, description="When the file was downloaded from the publisher."
+    )
+    ingested_at: datetime | None = Field(
+        default=None,
+        description="When the ingestion pipeline last processed this document. None "
+        "until ingestion actually runs -- downloading a file does not ingest it.",
+    )
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -114,6 +186,12 @@ class Chunk(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    #: Always built by :func:`medguard.storage.schema.make_chunk_id` -- position-
+    #: addressed, ``{document_id}::{chunk_index:04d}``. A content-addressed id was
+    #: considered and rejected: it makes an edited chunk a *new* chunk, so re-ingesting
+    #: a revised document leaves the superseded text in the index rather than
+    #: overwriting it. Versions stay distinguishable because ``document_id`` already
+    #: encodes the version, not because the id hashes the text.
     chunk_id: str
     document_id: str
     text: str = Field(min_length=1)
@@ -134,20 +212,6 @@ class Chunk(BaseModel):
             msg = f"page_end ({self.page_end}) < page_start ({self.page_start})"
             raise ValueError(msg)
         return self
-
-    @staticmethod
-    def make_id(document_id: str, chunk_index: int, text: str) -> str:
-        """Derive a deterministic chunk id from content.
-
-        Content-addressed rather than random, so re-ingesting an unchanged document
-        produces identical ids and upserts become idempotent. Re-running ingestion
-        therefore cannot silently duplicate the corpus -- a failure mode that quietly
-        destroys retrieval metrics.
-        """
-        digest = hashlib.blake2b(
-            f"{document_id}:{chunk_index}:{text}".encode(), digest_size=8
-        ).hexdigest()
-        return f"{document_id}:{chunk_index}:{digest}"
 
 
 class Candidate(BaseModel):

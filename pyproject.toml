@@ -23,17 +23,22 @@ dependencies = [
     "google-genai>=2.17,<3",
     "qdrant-client>=1.19,<2",
     "sqlalchemy>=2.0.52,<3",
+    # Alembic is core, not Postgres-specific: SQLite needs migrations too, and the
+    # schema is versioned from Phase 2 onward regardless of which backend is in use.
+    "alembic>=1.19,<2",
     "tenacity>=9.1,<10",
     "httpx>=0.28,<1",
     "psutil>=7.2,<8",
     "langfuse>=4.14,<5",
+    # Corpus source list. Declared explicitly rather than relied on transitively via
+    # uvicorn[standard], which could drop it without warning.
+    "pyyaml>=6.0,<7",
 ]
 
 [project.optional-dependencies]
 # PostgreSQL is opt-in: SQLite is the default local store and needs no driver.
 postgres = [
     "psycopg[binary]>=3.2,<4",
-    "alembic>=1.19,<2",
 ]
 
 [project.scripts]
@@ -50,6 +55,18 @@ dev = [
     "pytest-cov>=7.1,<8",
     "ruff>=0.16,<1",
     "mypy>=2.3,<3",
+    # PyYAML ships no py.typed, so `import yaml` fails under mypy strict without stubs.
+    "types-PyYAML>=6.0,<7",
+    # Generates the synthetic version-comparison PDFs in tests/fixtures/make_pdf.py.
+    # Deliberately not PyMuPDF: the parser is a Phase 3B dependency, and letting test
+    # infrastructure pull it in early would make it impossible to tell whether the
+    # ingestion pipeline or the fixtures introduced it. reportlab writes PDFs and
+    # cannot read them, which is exactly the capability boundary wanted here.
+    "reportlab>=4.4,<5",
+    # reportlab ships no py.typed either. Stubs rather than an ignore_missing_imports
+    # override: the fixture generator is the one place a wrong call signature would
+    # produce a corrupt PDF instead of an exception.
+    "types-reportlab>=4.4,<5",
 ]
 
 # ---------------------------------------------------------------------------

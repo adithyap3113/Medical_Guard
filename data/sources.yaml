@@ -1,0 +1,436 @@
+# MedGuard corpus definition.
+#
+# This file is the corpus. `medguard corpus download` reads it; nothing about the
+# document list lives in Python. Editing the corpus is a data change, not a code change.
+#
+# Rules for adding an entry:
+#   * The URL must have been fetched and confirmed to return `%PDF-` magic bytes.
+#     Several publishers serve an HTML consent or WAF page under a .pdf URL with HTTP
+#     200; content-type alone is not proof.
+#   * title, publication_date and license_or_usage_note must come from the publisher,
+#     not from memory. A field the publisher does not state is `null` -- and the reason
+#     is recorded in data/raw/SOURCES.md.
+#   * document_type is never a guess. The corpus is deliberately guideline-shaped.
+#
+# Every URL below was verified reachable on 2026-08-13. See data/raw/SOURCES.md for the
+# sources that were tried and rejected, and why.
+
+schema_version: 1
+
+documents:
+  # ---------------------------------------------------------------------------
+  # CDC / MMWR Recommendations and Reports.
+  #
+  # MMWR RR is the CDC's peer-reviewed guideline series: each issue is a single
+  # consensus recommendation set with graded evidence, which is exactly the document
+  # shape this corpus wants. Titles and dates below come from each report's DOI record
+  # at api.crossref.org, and the licence text is quoted verbatim from
+  # https://www.cdc.gov/mmwr/about.html.
+  # ---------------------------------------------------------------------------
+
+  - document_id: cdc_latent_tb_treatment_2020
+    title: >-
+      Guidelines for the Treatment of Latent Tuberculosis Infection: Recommendations
+      from the National Tuberculosis Controllers Association and CDC, 2020
+    source_url: https://www.cdc.gov/mmwr/volumes/69/rr/pdfs/rr6901a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2020-02-14
+    version_or_revision: MMWR Recomm Rep 69(1)
+    local_filename: cdc_latent_tb_treatment_2020.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_hepatitis_c_screening_2020
+    title: CDC Recommendations for Hepatitis C Screening Among Adults — United States, 2020
+    source_url: https://www.cdc.gov/mmwr/volumes/69/rr/pdfs/rr6902a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2020-04-10
+    version_or_revision: MMWR Recomm Rep 69(2)
+    local_filename: cdc_hepatitis_c_screening_2020.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_botulism_2021
+    title: Clinical Guidelines for Diagnosis and Treatment of Botulism, 2021
+    source_url: https://www.cdc.gov/mmwr/volumes/70/rr/pdfs/rr7002a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2021-05-07
+    version_or_revision: MMWR Recomm Rep 70(2)
+    local_filename: cdc_botulism_2021.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_sti_treatment_2021
+    title: Sexually Transmitted Infections Treatment Guidelines, 2021
+    source_url: https://www.cdc.gov/mmwr/volumes/70/rr/pdfs/rr7004a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2021-07-23
+    version_or_revision: MMWR Recomm Rep 70(4)
+    local_filename: cdc_sti_treatment_2021.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_opioid_prescribing_2022
+    title: CDC Clinical Practice Guideline for Prescribing Opioids for Pain — United States, 2022
+    source_url: https://www.cdc.gov/mmwr/volumes/71/rr/pdfs/rr7103a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2022-11-04
+    version_or_revision: MMWR Recomm Rep 71(3)
+    local_filename: cdc_opioid_prescribing_2022.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_hepatitis_b_screening_2023
+    title: >-
+      Screening and Testing for Hepatitis B Virus Infection: CDC Recommendations —
+      United States, 2023
+    source_url: https://www.cdc.gov/mmwr/volumes/72/rr/pdfs/rr7201a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2023-03-10
+    version_or_revision: MMWR Recomm Rep 72(1)
+    local_filename: cdc_hepatitis_b_screening_2023.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_anthrax_2023
+    title: CDC Guidelines for the Prevention and Treatment of Anthrax, 2023
+    source_url: https://www.cdc.gov/mmwr/volumes/72/rr/pdfs/rr7206a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2023-11-17
+    version_or_revision: MMWR Recomm Rep 72(6)
+    local_filename: cdc_anthrax_2023.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_contraception_spr_2024
+    title: U.S. Selected Practice Recommendations for Contraceptive Use, 2024
+    source_url: https://www.cdc.gov/mmwr/volumes/73/rr/pdfs/rr7303a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2024-08-08
+    version_or_revision: MMWR Recomm Rep 73(3)
+    local_filename: cdc_contraception_spr_2024.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_contraception_mec_2024
+    title: U.S. Medical Eligibility Criteria for Contraceptive Use, 2024
+    source_url: https://www.cdc.gov/mmwr/volumes/73/rr/pdfs/rr7304a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2024-08-08
+    version_or_revision: MMWR Recomm Rep 73(4)
+    local_filename: cdc_contraception_mec_2024.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_influenza_acip_2024
+    title: >-
+      Prevention and Control of Seasonal Influenza with Vaccines: Recommendations of
+      the Advisory Committee on Immunization Practices — United States, 2024–25
+      Influenza Season
+    source_url: https://www.cdc.gov/mmwr/volumes/73/rr/pdfs/rr7305a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2024-08-29
+    version_or_revision: MMWR Recomm Rep 73(5)
+    local_filename: cdc_influenza_acip_2024.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  - document_id: cdc_hiv_pep_2025
+    title: >-
+      Antiretroviral Postexposure Prophylaxis After Sexual, Injection Drug Use, or
+      Other Nonoccupational Exposure to HIV — CDC Recommendations, United States, 2025
+    source_url: https://www.cdc.gov/mmwr/volumes/74/rr/pdfs/rr7401a1-H.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: 2025-05-08
+    version_or_revision: MMWR Recomm Rep 74(1)
+    local_filename: cdc_hiv_pep_2025.pdf
+    license_or_usage_note: >-
+      All material in the MMWR Series is in the public domain and may be used and
+      reprinted without special permission; citation as to source, however, is
+      appreciated. (https://www.cdc.gov/mmwr/about.html)
+
+  # ---------------------------------------------------------------------------
+  # CDC Stacks (the CDC's document repository).
+  #
+  # Stacks records a year, which it renders as YYYY/01/01 or YYYY/MM/01. The day
+  # component is a catalogue placeholder, not a stated publication date, so
+  # publication_date is null for both entries below rather than recording a
+  # placeholder as fact. The year is in the title.
+  # ---------------------------------------------------------------------------
+
+  - document_id: cdc_hiv_prep_2021
+    title: >-
+      Preexposure Prophylaxis for the Prevention of HIV Infection in the United States
+      – 2021 Update: A Clinical Practice Guideline
+    source_url: https://stacks.cdc.gov/view/cdc/112360/cdc_112360_DS1.pdf
+    source_organization: CDC
+    document_type: guideline
+    publication_date: null
+    version_or_revision: 2021 Update
+    local_filename: cdc_hiv_prep_2021.pdf
+    license_or_usage_note: >-
+      Most of the information on the CDC and ATSDR websites is not subject to
+      copyright, is in the public domain, and may be freely used or reproduced without
+      obtaining copyright permission. Attribution to the agency that developed the
+      material must be provided in your use of the materials.
+      (https://www.cdc.gov/other/agencymaterials.html)
+    notes: >-
+      CDC Stacks records the publication date as 2021/12/01; the day component is a
+      catalogue placeholder, so publication_date is left null.
+
+  - document_id: cdc_antibiotic_resistance_2019
+    title: Antibiotic resistance threats in the United States, 2019
+    source_url: https://stacks.cdc.gov/view/cdc/82532/cdc_82532_DS1.pdf
+    source_organization: CDC
+    document_type: reference
+    publication_date: null
+    version_or_revision: null
+    local_filename: cdc_antibiotic_resistance_2019.pdf
+    license_or_usage_note: >-
+      Most of the information on the CDC and ATSDR websites is not subject to
+      copyright, is in the public domain, and may be freely used or reproduced without
+      obtaining copyright permission. Attribution to the agency that developed the
+      material must be provided in your use of the materials.
+      (https://www.cdc.gov/other/agencymaterials.html)
+    notes: >-
+      Classified `reference`, not `guideline`: this is a surveillance and burden
+      report, not a recommendation set. It is included deliberately so the corpus is
+      not uniformly one document type. CDC Stacks records 2019/01/01, a year-only
+      placeholder, so publication_date is null.
+
+  # ---------------------------------------------------------------------------
+  # NIH -- National Heart, Lung, and Blood Institute (NHLBI).
+  #
+  # Admitted in Phase 3A, having been REJECTED in Phase 2. Nothing about the evidence
+  # changed; the trade did. Phase 2 excluded these because NHLBI publishes no
+  # document-specific usage terms on any reachable page (nhlbi.nih.gov/copyright,
+  # /policies and /about/policies-and-notices all 404; nih.gov/web-policies-notices
+  # returns 403), and attaching NLM's statement -- a different institute's page --
+  # would have recorded a licence the source never issued.
+  #
+  # Phase 3A accepts a corpus of one publisher as the larger problem: 13 of 14
+  # documents from CDC means "which publisher does this claim come from?" has one
+  # answer, and no retrieval behaviour that depends on provenance can be demonstrated.
+  # The resolution is not to invent terms. license_or_usage_note below states exactly
+  # what is known and no more, which is honest under "never invent metadata" in a way
+  # that borrowing NLM's text would not have been.
+  #
+  # publication_date is null for all three: NHLBI's landing pages state a year (2014,
+  # 2012, 2007), never a full date, and a year is not a publication date. Reading one
+  # off the title page needs a PDF parser -- Phase 3B.
+  #
+  # Titles are quoted from each document's NHLBI landing page, verified 2026-08-13.
+  # ---------------------------------------------------------------------------
+
+  - document_id: nhlbi_sickle_cell_2014
+    title: "Evidence-Based Management of Sickle Cell Disease: Expert Panel Report, 2014"
+    source_url: https://www.nhlbi.nih.gov/sites/default/files/media/docs/sickle-cell-disease-report%20020816_0.pdf
+    source_organization: NIH
+    document_type: guideline
+    publication_date: null
+    version_or_revision: Expert Panel Report, 2014
+    local_filename: nhlbi_sickle_cell_2014.pdf
+    license_or_usage_note: >-
+      NIH-authored publication; specific reuse terms not published. NHLBI states no
+      document-specific usage terms on this document's landing page, and no reachable
+      NHLBI policy page states any. Recorded as unstated rather than assumed: US
+      Government works are generally public domain, but that is an inference about the
+      publisher, not a term this publisher published.
+    notes: >-
+      The landing page states the year 2014 (published September 2014) but no full
+      date, so publication_date is null. Phase 3B may be able to read one off the
+      title page.
+
+  - document_id: nhlbi_pediatric_cv_2011
+    title: >-
+      Expert Panel on Integrated Guidelines for Cardiovascular Health and Risk
+      Reduction in Children and Adolescents Full Report
+    source_url: https://www.nhlbi.nih.gov/sites/default/files/media/docs/peds_guidelines_full.pdf
+    source_organization: NIH
+    document_type: guideline
+    publication_date: null
+    version_or_revision: Full Report
+    local_filename: nhlbi_pediatric_cv_2011.pdf
+    license_or_usage_note: >-
+      NIH-authored publication; specific reuse terms not published. NHLBI states no
+      document-specific usage terms on this document's landing page, and no reachable
+      NHLBI policy page states any. Recorded as unstated rather than assumed: US
+      Government works are generally public domain, but that is an inference about the
+      publisher, not a term this publisher published.
+    notes: >-
+      The FULL report, not the summary. `peds_guidelines_sum.pdf` -- the filename this
+      entry was originally specified with -- returns HTTP 404 at every path tried on
+      2026-08-13; only `peds_guidelines_full.pdf` resolves. The full report is the
+      better corpus document anyway: it carries the graded evidence statements the
+      summary condenses away. The landing page states January 2012 as the publication
+      date for a 2011 expert panel; the document_id keeps the panel year, and
+      publication_date stays null because the two disagree and neither is stated as a
+      full date.
+
+  - document_id: nhlbi_asthma_epr3_2007
+    title: >-
+      Expert Panel Report 3: Guidelines for the Diagnosis and Management of Asthma
+      Full Report
+    source_url: https://www.nhlbi.nih.gov/sites/default/files/media/docs/asthgdln_1.pdf
+    source_organization: NIH
+    document_type: guideline
+    publication_date: null
+    version_or_revision: Expert Panel Report 3 (EPR-3)
+    local_filename: nhlbi_asthma_epr3_2007.pdf
+    license_or_usage_note: >-
+      NIH-authored publication; specific reuse terms not published. NHLBI states no
+      document-specific usage terms on this document's landing page, and no reachable
+      NHLBI policy page states any. Recorded as unstated rather than assumed: US
+      Government works are generally public domain, but that is an inference about the
+      publisher, not a term this publisher published.
+    notes: >-
+      EPR-3 is the numbered revision the publisher itself uses, so version_or_revision
+      is stated rather than inferred. The landing page gives 2007 for the guidelines
+      and September 2012 for the posted file, so publication_date is null.
+
+  # ---------------------------------------------------------------------------
+  # ICMR -- Indian Council of Medical Research.
+  #
+  # The one publisher in this corpus that states reuse terms in the affirmative, at
+  # https://www.icmr.gov.in/copyright-policy, quoted verbatim below. It is also the
+  # only non-US publisher here, which is the point: a corpus of exclusively US federal
+  # guidance encodes US practice as though it were the whole of medicine.
+  #
+  # Titles are taken from ICMR's own guidelines listing page. That listing prefixes
+  # each entry with its year ("2022-Treatment Guidelines For Antimicrobial Use in
+  # Common Syndromes"); the prefix is a listing convention rather than part of the
+  # title, so it is dropped here and the exact listing text is recorded in
+  # data/raw/SOURCES.md for anyone who wants to check.
+  #
+  # publication_date is null for all three: the listing states a year only.
+  # ---------------------------------------------------------------------------
+
+  - document_id: icmr_amr_treatment_2022
+    title: Treatment Guidelines for Antimicrobial Use in Common Syndromes
+    source_url: https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/treatment_amr_2022.pdf
+    source_organization: ICMR
+    document_type: guideline
+    publication_date: null
+    version_or_revision: "2022"
+    local_filename: icmr_amr_treatment_2022.pdf
+    license_or_usage_note: >-
+      Material featured on this Website may be reproduced free of charge. However, the
+      material has to be reproduced accurately and not to be used in a derogatory
+      manner or in a misleading context. Wherever the material is being published or
+      issued to others, the source must be prominently acknowledged. However, the
+      permission to reproduce this material shall not extend to any material which is
+      identified as being copyright of a third party. Authorization to reproduce such
+      material must be obtained from the departments/copyright holders concerned.
+      (https://www.icmr.gov.in/copyright-policy)
+    notes: >-
+      ICMR's listing prints this as "2022-Treatment Guidelines For Antimicrobial Use in
+      Common Syndromes". The 2019 edition is deliberately NOT in this corpus; see
+      data/raw/SOURCES.md for why two live versions of the same treatment guidance is
+      a retrieval hazard rather than a feature.
+
+  - document_id: icmr_type2_diabetes_2018
+    title: Guidelines for Management of Type 2 Diabetes
+    source_url: https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/ICMR_GuidelinesType2diabetes2018_0.pdf
+    source_organization: ICMR
+    document_type: guideline
+    publication_date: null
+    version_or_revision: "2018"
+    local_filename: icmr_type2_diabetes_2018.pdf
+    license_or_usage_note: >-
+      Material featured on this Website may be reproduced free of charge. However, the
+      material has to be reproduced accurately and not to be used in a derogatory
+      manner or in a misleading context. Wherever the material is being published or
+      issued to others, the source must be prominently acknowledged. However, the
+      permission to reproduce this material shall not extend to any material which is
+      identified as being copyright of a third party. Authorization to reproduce such
+      material must be obtained from the departments/copyright holders concerned.
+      (https://www.icmr.gov.in/copyright-policy)
+    notes: >-
+      The year is taken from ICMR's listing and from the publisher's own filename;
+      neither states a full date, so publication_date is null.
+
+  - document_id: icmr_hospital_infection_control_2017
+    title: Hospital Infection Control Guidelines
+    source_url: https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/Hospital_Infection_control_guidelines.pdf
+    source_organization: ICMR
+    document_type: guideline
+    publication_date: null
+    version_or_revision: "2017"
+    local_filename: icmr_hospital_infection_control_2017.pdf
+    license_or_usage_note: >-
+      Material featured on this Website may be reproduced free of charge. However, the
+      material has to be reproduced accurately and not to be used in a derogatory
+      manner or in a misleading context. Wherever the material is being published or
+      issued to others, the source must be prominently acknowledged. However, the
+      permission to reproduce this material shall not extend to any material which is
+      identified as being copyright of a third party. Authorization to reproduce such
+      material must be obtained from the departments/copyright holders concerned.
+      (https://www.icmr.gov.in/copyright-policy)
+    notes: >-
+      ICMR's listing prints this as "2017-Hospital Infection Control Guidelines"; the
+      year comes from that prefix, and the source filename carries no year at all.
+
+  # ---------------------------------------------------------------------------
+  # Retired entries.
+  #
+  # Kept, not deleted: the file is already in data/raw/ from Phase 1, and dropping the
+  # entry would leave a document with no provenance record and make `corpus verify`
+  # report an orphan forever. `retired: true` means "do not attempt to download",
+  # not "not part of the corpus".
+  # ---------------------------------------------------------------------------
+
+  - document_id: who_hypertension_2021
+    title: WHO guideline for the pharmacological treatment of hypertension in adults
+    source_url: https://iris.who.int/bitstream/handle/10665/344424/9789240033986-eng.pdf?sequence=1&isAllowed=y
+    source_organization: WHO
+    document_type: guideline
+    publication_date: null
+    version_or_revision: null
+    local_filename: who_hypertension_2021.pdf
+    retired: true
+    retired_reason: >-
+      The WHO IRIS URL no longer serves the PDF. As of 2026-08-13 it returns HTTP 200
+      with a 432-byte HTML consent interstitial (magic bytes '<!DOC'), so a download
+      cannot succeed. The copy in data/raw/ was fetched during Phase 1, when the URL
+      still resolved to the document.
+    license_or_usage_note: >-
+      NOT VERIFIED. The licence statement could not be re-read from the source: the
+      IRIS URL now returns a consent page rather than the PDF, and Phase 2 has no PDF
+      parser with which to read the terms off the document itself. WHO IRIS titles are
+      generally issued under CC BY-NC-SA 3.0 IGO, but that has not been confirmed for
+      this document and must not be treated as established.
+    notes: >-
+      Title as recorded in Phase 1 and not independently re-verified in Phase 2, for
+      the same reason the licence could not be. Flagged for re-check when a PDF parser
+      lands in Phase 3.

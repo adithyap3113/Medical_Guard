@@ -1,72 +1,46 @@
-"""Download WHO sample documents for MedGuard ingestion."""
+"""Download the MedGuard source corpus.
+
+A shim. Everything real lives in :mod:`medguard.corpus`, which sits under ``src/`` and
+is therefore covered by mypy strict and exercised by the test suite -- neither of which
+applies to ``scripts/``. Prefer ``medguard corpus download``; this file exists so the
+Phase 1 entry point keeps working.
+"""
 
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-import httpx
-
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
-
-DOWNLOADS: list[tuple[str, str]] = [
-    (
-        "who_hypertension_2021.pdf",
-        "https://iris.who.int/bitstream/handle/10665/344424/9789240033986-eng.pdf?sequence=1&isAllowed=y",
-    ),
-    (
-        "who_malaria_2023.pdf",
-        "https://iris.who.int/bitstream/handle/10665/373339/WHO-UCN-GMP-2023.01-Rev.1-eng.pdf?sequence=1&isAllowed=y",
-    ),
-    (
-        "who_essential_medicines_2023.pdf",
-        "https://iris.who.int/bitstream/handle/10665/371090/WHO-MHP-HPS-EML-2023.02-eng.pdf?sequence=1&isAllowed=y",
-    ),
-]
+from medguard.config import get_settings
+from medguard.corpus.download import DownloadStatus, download_corpus
+from medguard.corpus.manifest import build_manifest, write_manifest
+from medguard.corpus.sources import load_sources
+from medguard.errors import CorpusError
 
 
-def download_one(filename: str, url: str, out_dir: Path) -> None:
-    dest = out_dir / filename
-    if dest.exists() and dest.stat().st_size > 10_000:
-        print(f"  already present: {filename} ({dest.stat().st_size / 1024:.0f} KB)")
-        return
-
-    print(f"  downloading {filename} ...")
+def main() -> int:
+    settings = get_settings()
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/pdf,*/*;q=0.8",
-        }
-        with httpx.stream("GET", url, follow_redirects=True, timeout=120.0, headers=headers) as r:
-            r.raise_for_status()
-            with dest.open("wb") as f:
-                for chunk in r.iter_bytes(chunk_size=64 * 1024):
-                    f.write(chunk)
-    except httpx.HTTPError as e:
-        print(f"    FAILED: {e}", file=sys.stderr)
-        if dest.exists():
-            dest.unlink()
-        return
+        sources = load_sources(settings.corpus.sources_path)
+    except CorpusError as exc:
+        print(f"FAILED: {exc.detail}", file=sys.stderr)
+        return 1
 
-    # Sanity: valid PDF starts with %PDF-
-    with dest.open("rb") as f:
-        magic = f.read(5)
-    if magic != b"%PDF-":
-        print(f"    FAILED: not a valid PDF (got {magic!r})", file=sys.stderr)
-        dest.unlink()
-        return
+    print(f"Writing to: {settings.corpus.raw_dir}\n")
+    outcomes = download_corpus(sources, settings)
+    for outcome in outcomes:
+        size = f"{outcome.file_size_bytes / 1024:.0f} KB" if outcome.file_size_bytes else "—"
+        detail = f" ({outcome.error})" if outcome.error else ""
+        print(f"  {outcome.status.value:11s} {outcome.local_filename:44s} {size}{detail}")
 
-    print(f"    saved: {dest.stat().st_size / 1024:.0f} KB")
+    write_manifest(build_manifest(sources, outcomes, settings), settings.corpus.manifest_path)
 
-
-def main() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Writing to: {DATA_DIR}\n")
-    for filename, url in DOWNLOADS:
-        download_one(filename, url, DATA_DIR)
-    present = sum(1 for f, _ in DOWNLOADS if (DATA_DIR / f).exists())
-    print(f"\nStatus: {present}/{len(DOWNLOADS)} documents ready.")
+    failed = [o for o in outcomes if o.status is DownloadStatus.FAILED]
+    usable = [o for o in outcomes if o.ok]
+    print(f"\nStatus: {len(usable)}/{len(outcomes)} documents ready, {len(failed)} failed.")
+    # Non-zero on failure: the Phase 1 version always exited 0, which made this script
+    # useless as a CI step because no caller could tell success from total failure.
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

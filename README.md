@@ -10,8 +10,9 @@ documents.
 > a substitute for consultation with a qualified healthcare professional. Always
 > verify against the cited sources.
 
-**Status: Phase 1 of 16 complete** — foundation only. There is no retrieval, no
-chunking, no embeddings, and no generation pipeline yet. See
+**Status: Phase 2 of 16 complete** — foundation, corpus and schema. There is a corpus of
+13 clinical guideline PDFs with recorded provenance, and a versioned database schema.
+There is still no parsing, chunking, embedding, retrieval, or generation. See
 [Roadmap](#roadmap) for what exists and what does not.
 
 ---
@@ -25,13 +26,20 @@ uv sync
 # 2. Configure
 cp .env.example .env        # then add GEMINI_API_KEY — free at https://aistudio.google.com/apikey
 
-# 3. Start the vector database (optional in Phase 1; required from Phase 3)
+# 3. Start the vector database (optional until Phase 3)
 docker compose -f docker/docker-compose.yml up -d
 
-# 4. Verify the environment
+# 4. Create the database schema
+uv run medguard db upgrade
+
+# 5. Fetch the source corpus (~36 MB of public-domain CDC guidelines)
+uv run medguard corpus download
+uv run medguard corpus verify
+
+# 6. Verify the environment
 uv run medguard doctor
 
-# 5. Serve the API
+# 7. Serve the API
 uv run medguard serve       # http://127.0.0.1:8000/docs
 ```
 
@@ -107,6 +115,123 @@ One `DATABASE_URL` drives both. SQLite needs no server and no RAM; PostgreSQL is
 environment variable and `--profile postgres` away, and is what the deployment config
 uses. Application code cannot tell the difference.
 
+### The corpus is committed as a manifest, not as PDFs
+
+`data/manifest.json` is in git; the 36 MB of PDFs are not. The manifest records each
+document's title, publisher, URL, licence terms, SHA-256 and size, so a clone knows
+exactly what the system was built on and can prove its local copies match — without
+carrying government PDFs in git history forever.
+
+The corpus itself is defined in `data/sources.yaml`, which is data rather than code:
+changing the corpus does not mean editing Python.
+
+---
+
+## Corpus
+
+20 documents, ~90 MB, across four publishers:
+
+| Publisher | Documents | Reuse terms |
+|---|---:|---|
+| CDC | 13 | Quoted verbatim (public domain) |
+| NIH (NHLBI) | 3 | **Not published by the source** — recorded as unstated |
+| ICMR | 3 | Quoted verbatim (free reuse with attribution) |
+| WHO | 1 (retired) | Not verifiable; source page now gated |
+
+Four publishers rather than one is a deliberate correction. A single-publisher corpus
+makes "which organisation issued this recommendation?" a question with one answer, and
+nothing downstream that depends on provenance can be demonstrated at all.
+
+```bash
+uv run medguard corpus download    # fetch what data/sources.yaml defines
+uv run medguard corpus verify      # check every file against the manifest
+uv run medguard corpus verify -v   # also report what the database knows and it does not
+uv run medguard corpus sync        # record a file that exists but was never logged
+uv run medguard corpus sync --backfill-page-counts   # promote values into null fields
+```
+
+`verify` exits non-zero on any integrity error, so it works as a CI gate. A hash
+mismatch, a missing file and an unrecorded file are all *errors*; a `null`
+`publication_date` is a *warning*, because it is a correct record of an absent fact.
+Run `corpus download` before `verify` on a fresh clone — the PDFs are not committed.
+
+### Provenance rules
+
+Four rules, and they are enforced rather than encouraged:
+
+1. **Never invent metadata.** A field the publisher does not state is `null`, and
+   [`data/raw/SOURCES.md`](data/raw/SOURCES.md) says why for each one. Nine documents
+   have a null `publication_date`, because their source states a year or a catalogue
+   placeholder like `2019/01/01` rather than a real date; recording that as fact would
+   be indistinguishable from data. Where a publisher states no licence at all, the
+   manifest says exactly that rather than borrowing a plausible one.
+2. **Every URL is verified before it is added.** Content-type is not proof — WHO IRIS
+   returns HTTP 200 with `content-type: application/pdf` and an HTML consent page in the
+   body. The check is the `%PDF-` magic bytes, and it runs on the first bytes received.
+3. **Licence terms are quoted verbatim**, with the page they were read from.
+4. **Only `corpus download` and `corpus sync` may write the manifest.** Ingestion never
+   does. It writes what it learns to the `documents` table, and a human promotes it with
+   an explicit `corpus sync --backfill-*` that shows the diff and asks first. A pipeline
+   that rewrites its own provenance record has destroyed the only independent check on
+   itself. This is enforced by a test, not by convention.
+
+`page_count` is `null` for every document: counting pages needs a PDF parser, which
+arrives with Phase 3B. The field exists now so the schema stays stable across that
+boundary.
+
+### What is in it, and what is not
+
+The corpus is deliberately **guideline-shaped** — consensus recommendation sets, not
+primary research. A corpus containing single trials will answer "what is the first-line
+treatment for X" from one study with n=40, which is a retrieval-quality problem that no
+amount of reranking fixes.
+
+It is also entirely CDC, which is a real limitation and not a preference. NICE and
+NIH's `clinicalinfo.hiv.gov` return HTTP 403 to scripted requests; WHO IRIS returns a
+consent interstitial; and PubMed Central has added a JavaScript proof-of-work challenge
+in front of its PDFs. [`data/raw/SOURCES.md`](data/raw/SOURCES.md) records each of those
+findings with its evidence, along with every substitution made.
+
+---
+
+## Database
+
+SQLite by default, PostgreSQL by configuration, one schema for both.
+
+```bash
+uv run medguard db upgrade              # apply migrations
+uv run medguard db current              # what revision is this database at?
+uv run medguard db history              # the migration history
+uv run medguard db revision -m "..."    # new migration (a message is mandatory)
+uv run medguard db downgrade base       # roll back (prompts first — this drops tables)
+```
+
+Two tables: `documents` (one row per corpus document, plus ingestion state) and
+`chunks` (empty until Phase 3). `medguard doctor` reports when the database's schema
+version is behind the code, which turns an otherwise baffling `no such column` deep
+inside a request into one line of diagnostic output.
+
+Migrations read `DATABASE_URL` from application settings rather than from `alembic.ini`,
+so the app and its migrations cannot end up pointed at different databases.
+`render_as_batch=True` is set from the first migration onward — SQLite implements almost
+none of `ALTER TABLE`, and retrofitting batch mode later means rewriting history.
+
+---
+
+## Qdrant
+
+```bash
+docker compose -f docker/docker-compose.yml up -d qdrant
+uv run python scripts/verify_qdrant_persistence.py
+```
+
+The persistence script writes known vectors to a throwaway collection, restarts the
+container, and asserts the vectors came back. This is worth testing because a Qdrant
+container with a broken volume mount behaves perfectly until its first restart, then
+returns empty — and the symptom looks like a retrieval bug rather than a storage one.
+
+It never runs `docker compose down -v`, and never touches the real collection.
+
 ---
 
 ## Security
@@ -129,8 +254,9 @@ Phase 14.
 |---|---|---|
 | 0 | Repository audit | Done |
 | 1 | Foundation: config, logging, domain models, provider, CLI, API, diagnostics | **Done** |
-| 2 | Infrastructure | Compose file written; Qdrant not yet exercised |
-| 3 | Ingestion: PDF parsing, chunking, corpus manifest | Not started |
+| 2 | Corpus acquisition, provenance manifest, database schema, migrations | **Done** — 14 documents, Qdrant persistence verified |
+| 3A | Corpus expansion, page-range schema, backfill, ingestion config | **Done** — 20 documents, 4 publishers |
+| 3B | Ingestion: PDF parsing, chunking, page counts, embeddings, indexing | Not started |
 | 4 | Dense retrieval | Not started |
 | 5 | Baseline RAG | Not started |
 | 6–8 | Sparse retrieval, hybrid RRF fusion, cross-encoder reranking | Not started |
@@ -148,16 +274,19 @@ harness produces them, and every claim will be reproducible from a recorded run.
 ## Development
 
 ```bash
-uv run pytest              # 154 tests, no network access required
-uv run ruff check .        # lint
-uv run ruff format .       # format
-uv run mypy                # strict type checking
+uv run pytest -m "not integration"   # 286 tests, no network access required
+uv run pytest -m integration         # needs Docker and a running Qdrant
+uv run ruff check .                  # lint
+uv run ruff format .                 # format
+uv run mypy                          # strict type checking
 ```
 
-The test suite runs fully offline. `tests/conftest.py` strips every application
+The unit suite runs fully offline. `tests/conftest.py` strips every application
 environment variable before each test, so results never depend on whether the
 developer has real credentials configured, and no test can accidentally spend API
-quota.
+quota. Corpus tests are redirected at a temporary directory, so they cannot read or
+rewrite the real corpus and its committed manifest. Download behaviour is tested
+against `httpx.MockTransport`.
 
 ### Layout
 
@@ -168,12 +297,22 @@ src/medguard/
   models.py            domain types: Chunk, Candidate, Citation, Answer, …
   errors.py            vendor-neutral exception taxonomy
   diagnostics.py       the checks behind `doctor` and /ready
+  corpus/              source list, safe download, provenance manifest
   providers/           LLM provider contract + the Gemini adapter
-  embeddings/          embedding contracts (no implementation until Phase 4)
-  storage/             Qdrant and SQLAlchemy adapters
+  constants.py         values that must never change once data exists
+  embeddings/          embedding contracts (no implementation until Phase 3B)
+  storage/             Qdrant adapter, SQLAlchemy engine, ORM schema
   observability/       tracing abstraction with a no-op fallback
   cli/                 Typer application
   api/                 FastAPI application factory and routes
+
+data/
+  sources.yaml         the corpus definition — data, not code
+  manifest.json        generated provenance record (committed)
+  raw/SOURCES.md       what was tried, what failed, why fields are null
+  raw/*.pdf            the documents themselves (not committed)
+
+migrations/            Alembic environment and revision history
 ```
 
 Only `providers/gemini.py` may import `google.genai`. Everything else depends on the
@@ -183,6 +322,14 @@ vendor-neutral contract in `providers/base.py`.
 
 ## Licence and sources
 
-Source documents are published guidance from organisations such as the WHO. Each
-document's provenance, licence and content hash are recorded at ingestion. PDFs are
-not committed to this repository; `scripts/download_sample_docs.py` fetches them.
+Source documents are published clinical guidance from CDC, NIH/NHLBI, ICMR and WHO.
+Each document's provenance, licence terms, content hash and size are recorded in
+`data/manifest.json`, which is committed. The PDFs are not; fetch them with
+`medguard corpus download`.
+
+Usage terms are quoted verbatim from each publisher, with the page they were read from
+— except for the three NHLBI documents, where the publisher states none and the manifest
+records that absence rather than assuming one. MedGuard cites every source document it
+draws on, which satisfies the CDC and ICMR attribution requests. Full detail, including
+every source that was tried and rejected, is in
+[`data/raw/SOURCES.md`](data/raw/SOURCES.md).

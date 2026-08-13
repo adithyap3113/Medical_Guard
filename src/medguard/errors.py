@@ -20,6 +20,9 @@ from __future__ import annotations
 
 __all__ = [
     "ConfigurationError",
+    "CorpusError",
+    "IntegrityError",
+    "ManifestError",
     "MedGuardError",
     "ProviderAuthError",
     "ProviderBlockedError",
@@ -30,6 +33,7 @@ __all__ = [
     "ProviderResponseError",
     "ProviderTimeoutError",
     "ProviderUnavailableError",
+    "SourceUnavailableError",
     "VectorStoreError",
 ]
 
@@ -207,3 +211,47 @@ class VectorStoreError(MedGuardError):
     """The vector database is unreachable or rejected an operation."""
 
     user_message = "The knowledge index is temporarily unavailable."
+
+
+# ---------------------------------------------------------------------------
+# Corpus errors
+# ---------------------------------------------------------------------------
+
+
+class CorpusError(MedGuardError):
+    """Base for failures acquiring or validating the source-document corpus."""
+
+    user_message = "The document corpus is unavailable or invalid."
+
+
+class ManifestError(CorpusError):
+    """``data/manifest.json`` is missing, malformed, or internally inconsistent.
+
+    Distinct from :class:`IntegrityError`: the manifest itself is wrong here, rather
+    than the manifest being right and the files on disk disagreeing with it.
+    """
+
+    user_message = "The corpus manifest could not be read."
+
+
+class SourceUnavailableError(CorpusError):
+    """A source document could not be fetched from its publisher.
+
+    Routine rather than exceptional: publishers move URLs, put documents behind
+    consent interstitials, and add anti-bot challenges. One unavailable source must
+    not abort acquisition of the rest, so this is raised per-document and collected.
+    """
+
+    user_message = "A source document could not be downloaded."
+
+
+class IntegrityError(CorpusError):
+    """A file on disk does not match what the manifest records for it.
+
+    Treated as an error rather than a warning because every downstream guarantee --
+    reproducible chunk ids, citations that point at the text they claim to -- assumes
+    the bytes are the ones that were hashed. Silent drift here corrupts retrieval in a
+    way that surfaces much later and is very hard to trace back.
+    """
+
+    user_message = "A corpus document failed its integrity check."

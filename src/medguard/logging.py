@@ -210,7 +210,16 @@ def configure_logging(
     root.setLevel(level.upper())
 
     # These are chatty at INFO and duplicate our own request logging.
-    for noisy in ("httpx", "httpcore", "urllib3", "google_genai", "uvicorn.access"):
+    # `alembic.runtime.plugins` announces every autogenerate plugin it loads, which
+    # buries the one line of `medguard db upgrade` output anyone cares about.
+    for noisy in (
+        "httpx",
+        "httpcore",
+        "urllib3",
+        "google_genai",
+        "uvicorn.access",
+        "alembic.runtime.plugins",
+    ):
         logging.getLogger(noisy).setLevel(max(logging.WARNING, root.level))
 
 

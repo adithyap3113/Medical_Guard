@@ -434,17 +434,129 @@ def check_langfuse(settings: Settings) -> Check:
     )
 
 
+def check_corpus(settings: Settings) -> Check:
+    """Report corpus presence and integrity without reading the whole corpus twice.
+
+    Non-critical: an empty corpus is the correct state before ``medguard corpus
+    download`` has been run, and a diagnostic that shows red for an expected condition
+    trains people to ignore it. It becomes worth promoting to critical once retrieval
+    exists and an empty corpus means the system genuinely cannot answer anything.
+    """
+    from medguard.corpus.manifest import load_manifest, verify_corpus
+    from medguard.errors import CorpusError
+
+    manifest_path = settings.corpus.manifest_path
+    if not manifest_path.is_file():
+        return Check(
+            name="Corpus",
+            status=CheckStatus.WARN,
+            detail=f"no manifest at {manifest_path} — run `medguard corpus download`.",
+        )
+
+    try:
+        manifest = load_manifest(manifest_path)
+        report = verify_corpus(manifest, settings)
+    except CorpusError as exc:
+        return Check(name="Corpus", status=CheckStatus.FAIL, detail=exc.detail)
+
+    total_mb = sum(d.file_size_bytes for d in manifest.documents) / 1024 / 1024
+    summary = f"{len(manifest.documents)} documents ({total_mb:.1f} MB)"
+
+    if report.errors:
+        first = report.errors[0]
+        return Check(
+            name="Corpus",
+            status=CheckStatus.FAIL,
+            detail=f"{summary}; {len(report.errors)} integrity error(s). "
+            f"First: {first.document_id or '?'} — {first.detail}",
+        )
+    if report.warnings:
+        return Check(
+            name="Corpus",
+            status=CheckStatus.WARN,
+            detail=f"{summary}; {len(report.warnings)} warning(s). "
+            "Run `medguard corpus verify` for detail.",
+        )
+    return Check(
+        name="Corpus",
+        status=CheckStatus.OK,
+        detail=f"{summary}, all hashes match",
+    )
+
+
+def check_migrations(settings: Settings) -> Check:
+    """Compare the database's stamped revision against the latest migration on disk.
+
+    A database whose schema is behind the code is the failure that presents as a
+    baffling ``no such column`` deep inside a request. Surfacing it here turns that
+    into one line of ``doctor`` output.
+    """
+    from alembic.config import Config
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+
+    from medguard.config import project_root
+    from medguard.storage.database import Database
+
+    root = project_root()
+    ini = root / "alembic.ini"
+    if not ini.is_file():
+        return Check(
+            name="Migrations", status=CheckStatus.WARN, detail=f"alembic.ini not found at {ini}"
+        )
+
+    try:
+        config = Config(str(ini))
+        config.set_main_option("script_location", str(root / "migrations"))
+        script = ScriptDirectory.from_config(config)
+        head = script.get_current_head()
+    except Exception as exc:  # noqa: BLE001 - a broken migration tree is a WARN, not a crash
+        return Check(
+            name="Migrations",
+            status=CheckStatus.WARN,
+            detail=f"could not read migration history: {type(exc).__name__}: {exc}",
+        )
+
+    db = Database(settings)
+    try:
+        with db.engine.connect() as conn:
+            current = MigrationContext.configure(conn).get_current_revision()
+    except Exception as exc:  # noqa: BLE001 - database reachability is check_database's job
+        return Check(
+            name="Migrations",
+            status=CheckStatus.WARN,
+            detail=f"could not read the database revision: {type(exc).__name__}: {exc}",
+        )
+    finally:
+        db.dispose()
+
+    if current is None:
+        return Check(
+            name="Migrations",
+            status=CheckStatus.WARN,
+            detail=f"database has no schema version; head is {head}. Run `medguard db upgrade`.",
+        )
+    if current != head:
+        return Check(
+            name="Migrations",
+            status=CheckStatus.WARN,
+            detail=f"database is at {current}, latest migration is {head}. "
+            "Run `medguard db upgrade`.",
+        )
+    return Check(name="Migrations", status=CheckStatus.OK, detail=f"at head ({head})")
+
+
 def check_embedding_config(settings: Settings) -> Check:
     """Report the embedding plan without loading anything.
 
-    Phase 1 downloads no model weights, so this states intent and the collection name
-    that will be used, letting you catch a misconfiguration before Phase 4 spends
-    bandwidth on it.
+    No model weights are downloaded before Phase 3B, so this states intent and the
+    collection name that will be used, letting you catch a misconfiguration before
+    ingestion spends bandwidth on it.
     """
     return Check(
         name="Embeddings",
         status=CheckStatus.SKIP,
-        detail=f"not loaded in Phase 1. Planned: {settings.embedding.model} "
+        detail=f"not loaded yet (Phase 3B). Planned: {settings.embedding.model} "
         f"({settings.embedding.dimension}d) + {settings.embedding.sparse_model} "
         f"→ collection {settings.collection_name!r}",
     )
@@ -476,7 +588,9 @@ def run_diagnostics(
         checks += [check_cpu(), check_memory(), check_gpu(), check_disk(), check_docker()]
     checks += [
         check_database(s),
+        check_migrations(s),
         check_qdrant(s, timeout_s=network_timeout_s),
+        check_corpus(s),
         check_gemini_key(s),
         *check_gemini_models(s, smoke_test=smoke_test),
         check_langfuse(s),

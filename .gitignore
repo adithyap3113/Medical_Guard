@@ -19,11 +19,19 @@ venv/
 .env.*.local
 !.env.example
 
-# Data — never commit downloaded PDFs or processed chunks
-data/raw/
-data/processed/
-data/interim/
+# Data — never commit downloaded PDFs or processed chunks.
+#
+# These are `dir/*`, not `dir/`. Git does not descend into an excluded *directory*,
+# so a `!` negation for a file inside `data/raw/` can never take effect. Excluding
+# the directory's *contents* keeps the directory itself visible, which is what makes
+# the negations below work at all.
+data/raw/*
+data/processed/*
+data/interim/*
+
+# Keep the folder structure and the tracked provenance artifacts.
 !data/raw/.gitkeep
+!data/raw/SOURCES.md
 !data/processed/.gitkeep
 
 # Model artifacts
