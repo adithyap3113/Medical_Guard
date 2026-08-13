@@ -1,0 +1,125 @@
+[project]
+name = "medguard"
+version = "0.1.0"
+description = "Production-oriented medical knowledge RAG system with hybrid retrieval, reranking, evaluation, and observability."
+readme = "README.md"
+authors = [
+    { name = "Adithya P", email = "adithyap3113@gmail.com" }
+]
+requires-python = ">=3.11"
+
+# Phase 1 core runtime. Deliberately excluded, and why:
+#   torch / sentence-transformers -> CPU-only 8 GB machine; ONNX via fastembed lands in Phase 4
+#   anthropic, openai             -> Gemini is the only generation provider
+#   langchain                     -> not used as an application framework
+dependencies = [
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.15,<3",
+    "structlog>=26.1,<27",
+    "typer>=0.27,<1",
+    "rich>=15.0,<16",
+    "fastapi>=0.141,<1",
+    "uvicorn[standard]>=0.52,<1",
+    "google-genai>=2.17,<3",
+    "qdrant-client>=1.19,<2",
+    "sqlalchemy>=2.0.52,<3",
+    "tenacity>=9.1,<10",
+    "httpx>=0.28,<1",
+    "psutil>=7.2,<8",
+    "langfuse>=4.14,<5",
+]
+
+[project.optional-dependencies]
+# PostgreSQL is opt-in: SQLite is the default local store and needs no driver.
+postgres = [
+    "psycopg[binary]>=3.2,<4",
+    "alembic>=1.19,<2",
+]
+
+[project.scripts]
+medguard = "medguard.cli.app:app"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1,<10",
+    "pytest-asyncio>=1.4,<2",
+    "pytest-cov>=7.1,<8",
+    "ruff>=0.16,<1",
+    "mypy>=2.3,<3",
+]
+
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    "RUF",  # ruff-specific
+    "S",    # flake8-bandit (security)
+    "BLE",  # flake8-blind-except
+]
+ignore = [
+    "E501",    # line length is enforced by the formatter, not the linter
+    "B008",    # function call in default arg: this is how Typer/FastAPI DI works
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately assert, use fixtures with hardcoded fake secrets, and
+# exercise private helpers.
+"tests/**" = ["S101", "S105", "S106"]
+"scripts/**" = ["S101"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# Third-party packages that do not ship complete type information.
+module = [
+    "qdrant_client.*",
+    "langfuse.*",
+    "psutil.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
+markers = [
+    "integration: requires live external services (Qdrant, Gemini); deselect with -m 'not integration'",
+    "network: performs real network calls",
+]
+filterwarnings = ["error::DeprecationWarning:medguard.*"]
+
+[tool.coverage.run]
+source = ["src/medguard"]
+branch = true

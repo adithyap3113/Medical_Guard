@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Secrets & environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Data — never commit downloaded PDFs or processed chunks
+data/raw/
+data/processed/
+data/interim/
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Model artifacts
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.onnx
+
+# Downloaded model weights (fastembed/HuggingFace caches)
+.fastembed_cache/
+.cache/huggingface/
+
+# Evaluation run outputs — regenerated, and large. The dataset itself IS committed.
+data/eval/runs/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Docker volumes (mounted locally)
+qdrant_storage/
+postgres_data/
+redis_data/
+langfuse_data/
