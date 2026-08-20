@@ -22,6 +22,29 @@ from sqlalchemy import create_engine, inspect
 
 from medguard.config import Settings, project_root
 
+#: Named revisions the tests below step to deliberately. Spelled out rather than reached
+#: with a relative `-1`, which retargets itself every time a migration is added and turns
+#: a precise assertion into a vague one without failing.
+BASELINE_REVISION = "cc54fe498aaa"
+PAGE_RANGE_REVISION = "125928f4b940"
+PAGE_POSITIVE_REVISION = "b6f2d40c9a71"
+
+#: Raw SQL rather than the ORM, deliberately. These tests assert what the *database*
+#: enforces; going through `ChunkRow` would let Pydantic and SQLAlchemy reject a row
+#: before it reached the constraint, and the test would pass with the constraint absent.
+_INSERT_DOCUMENT = (
+    "INSERT INTO documents (document_id,title,source_url,source_organization,"
+    "document_type,local_filename,sha256,file_size_bytes,retrieved_at,"
+    "ingestion_status,license_or_usage_note,created_at,updated_at) VALUES "
+    "('d','t','u','CDC','GUIDELINE','d.pdf',:h,1,'2026-01-01','pending','x',"
+    "'2026-01-01','2026-01-01')"
+)
+_INSERT_CHUNK = (
+    "INSERT INTO chunks (chunk_id,document_id,chunk_index,page_start,page_end,text,"
+    "char_count,chunk_metadata,created_at) VALUES "
+    "('d::0000','d',0,:start,:end,'x',1,'{}','2026-01-01')"
+)
+
 
 @pytest.fixture
 def alembic_config(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Config:
@@ -186,7 +209,10 @@ class TestPageRangeMigration:
         self, alembic_config: Config, settings: Settings
     ) -> None:
         command.upgrade(alembic_config, "head")
-        command.downgrade(alembic_config, "-1")
+        # Named, not `-1`: a relative downgrade silently retargets every time a
+        # migration is added on top, and the test would then assert the wrong thing
+        # while still passing for a while.
+        command.downgrade(alembic_config, PAGE_RANGE_REVISION + "-1")
 
         engine = create_engine(settings.app.database_url)
         try:
@@ -221,7 +247,7 @@ class TestPageRangeMigration:
         """
         from sqlalchemy import text
 
-        command.upgrade(alembic_config, "cc54fe498aaa")
+        command.upgrade(alembic_config, BASELINE_REVISION)
 
         engine = create_engine(settings.app.database_url)
         try:
@@ -293,7 +319,7 @@ class TestPageRangeMigration:
         finally:
             engine.dispose()
 
-        command.downgrade(alembic_config, "-1")
+        command.downgrade(alembic_config, PAGE_RANGE_REVISION + "-1")
 
         engine = create_engine(settings.app.database_url)
         try:
@@ -305,6 +331,136 @@ class TestPageRangeMigration:
             engine.dispose()
 
         assert page == 41
+
+
+class TestPagePositivityMigration:
+    """The third migration: page numbers must be 1-based.
+
+    This one exists to catch a bug that has not been written yet. PyMuPDF indexes pages
+    from 0; the parser landing in this phase converts, and this constraint is what makes
+    a regression in that conversion loud instead of silent.
+    """
+
+    def test_the_constraint_exists_at_head(
+        self, alembic_config: Config, settings: Settings
+    ) -> None:
+        command.upgrade(alembic_config, "head")
+
+        engine = create_engine(settings.app.database_url)
+        try:
+            names = {c["name"] for c in inspect(engine).get_check_constraints("chunks")}
+        finally:
+            engine.dispose()
+
+        assert "ck_chunks_page_numbers_positive" in names
+
+    def test_it_does_not_disturb_the_constraints_already_there(
+        self, alembic_config: Config, settings: Settings
+    ) -> None:
+        """Batch mode rebuilds the table. A rebuild that drops a constraint is silent."""
+        command.upgrade(alembic_config, "head")
+
+        engine = create_engine(settings.app.database_url)
+        try:
+            names = {c["name"] for c in inspect(engine).get_check_constraints("chunks")}
+        finally:
+            engine.dispose()
+
+        assert {
+            "ck_chunks_page_range_ordered",
+            "ck_chunks_chunk_index_non_negative",
+            "ck_chunks_char_count_non_negative",
+        } <= names
+
+    def test_page_zero_is_rejected_at_head(
+        self, alembic_config: Config, settings: Settings
+    ) -> None:
+        """The whole point: page 0 is an unconverted PyMuPDF index, not a page."""
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError
+
+        command.upgrade(alembic_config, "head")
+
+        engine = create_engine(settings.app.database_url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(_INSERT_DOCUMENT), {"h": "a" * 64})
+            with pytest.raises(IntegrityError, match="page_numbers_positive"), engine.begin() as c:
+                c.execute(text(_INSERT_CHUNK), {"start": 0, "end": 0})
+        finally:
+            engine.dispose()
+
+    def test_a_zero_page_end_is_rejected_too(
+        self, alembic_config: Config, settings: Settings
+    ) -> None:
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError
+
+        command.upgrade(alembic_config, "head")
+
+        engine = create_engine(settings.app.database_url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(_INSERT_DOCUMENT), {"h": "a" * 64})
+            with pytest.raises(IntegrityError, match="page_numbers_positive"), engine.begin() as c:
+                # page_start NULL, page_end 0: the ordering constraint says nothing here.
+                c.execute(text(_INSERT_CHUNK), {"start": None, "end": 0})
+        finally:
+            engine.dispose()
+
+    def test_page_one_is_accepted(self, alembic_config: Config, settings: Settings) -> None:
+        from sqlalchemy import text
+
+        command.upgrade(alembic_config, "head")
+
+        engine = create_engine(settings.app.database_url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(_INSERT_DOCUMENT), {"h": "a" * 64})
+                conn.execute(text(_INSERT_CHUNK), {"start": 1, "end": 1})
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text("SELECT page_start, page_end FROM chunks WHERE chunk_id = 'd::0000'")
+                ).one()
+        finally:
+            engine.dispose()
+
+        assert tuple(row) == (1, 1)
+
+    def test_both_null_is_still_accepted(self, alembic_config: Config, settings: Settings) -> None:
+        """Null still means "the parser could not attribute this span", not page zero."""
+        from sqlalchemy import text
+
+        command.upgrade(alembic_config, "head")
+
+        engine = create_engine(settings.app.database_url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(_INSERT_DOCUMENT), {"h": "a" * 64})
+                conn.execute(text(_INSERT_CHUNK), {"start": None, "end": None})
+            with engine.connect() as conn:
+                count = conn.execute(text("SELECT count(*) FROM chunks")).scalar_one()
+        finally:
+            engine.dispose()
+
+        assert count == 1
+
+    def test_downgrading_removes_only_this_constraint(
+        self, alembic_config: Config, settings: Settings
+    ) -> None:
+        command.upgrade(alembic_config, "head")
+        command.downgrade(alembic_config, PAGE_RANGE_REVISION)
+
+        engine = create_engine(settings.app.database_url)
+        try:
+            names = {c["name"] for c in inspect(engine).get_check_constraints("chunks")}
+            columns = {c["name"] for c in inspect(engine).get_columns("chunks")}
+        finally:
+            engine.dispose()
+
+        assert "ck_chunks_page_numbers_positive" not in names
+        assert "ck_chunks_page_range_ordered" in names
+        assert {"page_start", "page_end"} <= columns
 
 
 class TestBatchMode:

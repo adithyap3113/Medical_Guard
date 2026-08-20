@@ -87,8 +87,9 @@ def render_report(console: Console, report: DiagnosticReport) -> None:
     else:
         console.print(
             Panel(
-                "Core environment is healthy. Warnings above are expected while the "
-                "corpus has not been ingested yet.",
+                "Core environment is healthy. Any warnings above are non-critical: an "
+                "unset Gemini key and unconfigured tracing are legitimate states, and a "
+                "null publication_date is a correct record of an absent fact.",
                 border_style="green",
                 title="Ready",
             )

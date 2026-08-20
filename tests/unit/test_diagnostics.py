@@ -59,12 +59,21 @@ class TestIndividualChecks:
         checks = check_gemini_models(settings)
         assert all(c.status is CheckStatus.SKIP for c in checks)
 
-    def test_embedding_check_confirms_nothing_is_loaded(self, settings: Settings) -> None:
-        """Phase 1 acceptance: no model weights are downloaded."""
+    def test_embedding_check_reports_config_without_loading_a_model(
+        self, settings: Settings
+    ) -> None:
+        """Still no weights downloaded -- but the configuration is now knowable.
+
+        Phase 1 reported SKIP because there was no implementation behind the settings.
+        Phase 3B has one, and `doctor` is the command people run *to find out whether
+        things are set up*: it must report the collection the configuration implies
+        without becoming the command that spends 130 MB of bandwidth.
+        """
         check = check_embedding_config(settings)
-        assert check.status is CheckStatus.SKIP
-        assert "not loaded" in check.detail
+        assert check.status is CheckStatus.OK
+        assert "loaded on first use" in check.detail
         assert settings.collection_name in check.detail
+        assert settings.embedding.model in check.detail
 
 
 class TestReport:
@@ -144,7 +153,8 @@ class TestUnimplementedCommands:
     @pytest.mark.parametrize(
         ("argv", "phase"),
         [
-            (["ingest"], "Phase 3"),
+            # `ingest` left this list in Phase 3B: it is implemented, and its own tests
+            # in tests/unit/test_ingest_cli.py cover it.
             (["query", "what is hypertension?"], "Phases 5-11"),
             (["eval"], "Phase 12"),
         ],

@@ -196,8 +196,11 @@ class Chunk(BaseModel):
     document_id: str
     text: str = Field(min_length=1)
     chunk_index: int = Field(ge=0, description="Ordinal position within the document.")
-    page_start: int | None = Field(default=None, ge=0)
-    page_end: int | None = Field(default=None, ge=0)
+    #: 1-based, matching the database constraint and matching how anyone reading the
+    #: document counts. PyMuPDF indexes from 0, so ``ge=1`` is what catches an
+    #: unconverted parser index here rather than three layers downstream in a citation.
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
     section: str | None = Field(default=None, description="Nearest enclosing heading.")
     token_count: int | None = Field(default=None, ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -292,8 +295,10 @@ class Citation(BaseModel):
     chunk_id: str
     document_id: str
     document_title: str | None = None
-    page_start: int | None = Field(default=None, ge=0)
-    page_end: int | None = Field(default=None, ge=0)
+    #: 1-based, for the same reason as :class:`Chunk`. This is the pair a clinician
+    #: actually reads, so an off-by-one here is the one that reaches a person.
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
     quote: str | None = Field(
         default=None, description="Verbatim supporting span from the source chunk."
     )

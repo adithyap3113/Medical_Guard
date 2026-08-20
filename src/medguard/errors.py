@@ -19,11 +19,16 @@ content back, so they never become the user-facing string.
 from __future__ import annotations
 
 __all__ = [
+    "ChunkingError",
+    "CollectionMismatchError",
     "ConfigurationError",
     "CorpusError",
+    "EmbeddingError",
+    "IngestionError",
     "IntegrityError",
     "ManifestError",
     "MedGuardError",
+    "ParseError",
     "ProviderAuthError",
     "ProviderBlockedError",
     "ProviderError",
@@ -213,6 +218,24 @@ class VectorStoreError(MedGuardError):
     user_message = "The knowledge index is temporarily unavailable."
 
 
+class CollectionMismatchError(VectorStoreError):
+    """The live Qdrant collection does not have the shape this code expects.
+
+    Raised by ``VectorStore.ensure_collection`` when a collection of the right *name*
+    exists with the wrong vector configuration -- a different dimension, a different
+    distance metric, a missing named vector, or a sparse vector without IDF.
+
+    Deliberately fatal rather than self-healing. The tempting behaviour is to drop and
+    recreate, and that silently destroys an index someone may have spent an hour
+    building. The other tempting behaviour is to write into it anyway, which is worse:
+    vectors from two models in one collection produce retrieval that is confidently,
+    unmeasurably wrong. Refusing and saying exactly what differs leaves the decision
+    with the person who knows which of the two is the mistake.
+    """
+
+    user_message = "The knowledge index is not compatible with this build."
+
+
 # ---------------------------------------------------------------------------
 # Corpus errors
 # ---------------------------------------------------------------------------
@@ -255,3 +278,64 @@ class IntegrityError(CorpusError):
     """
 
     user_message = "A corpus document failed its integrity check."
+
+
+# ---------------------------------------------------------------------------
+# Ingestion errors
+# ---------------------------------------------------------------------------
+
+
+class IngestionError(MedGuardError):
+    """Base for failures turning a source document into indexed chunks.
+
+    Separate from :class:`CorpusError` on a real boundary: corpus errors are about
+    *acquiring and trusting bytes*, ingestion errors are about *interpreting* bytes that
+    are already trusted. A corpus error means re-download; an ingestion error means the
+    file is fine and this code could not handle it.
+
+    Every subclass is caught per-document by the pipeline and recorded on the row, which
+    is what stops document 7 from taking documents 8 through 20 down with it.
+    """
+
+    user_message = "A source document could not be processed."
+
+
+class ParseError(IngestionError):
+    """A PDF could not be opened or its text could not be extracted.
+
+    Routine, not exceptional. Public-health PDFs include scanned-image documents with no
+    text layer, files truncated by a proxy, and the occasional structurally damaged
+    object table. Each of those is one unusable document, not a broken pipeline.
+
+    Always carries the document context. PyMuPDF's own messages are frequently a bare
+    ``"cannot open document"`` or an mupdf error string with no filename in it, and an
+    ingestion log that says which of twenty documents failed is the difference between
+    a two-minute fix and an afternoon.
+    """
+
+    user_message = "A source document could not be read."
+
+
+class ChunkingError(IngestionError):
+    """Chunking produced something structurally impossible.
+
+    Not raised for a document that simply yields no chunks -- an empty document is a
+    legitimate, reportable outcome. This is for invariant violations: a chunk longer
+    than the configured maximum, a page span running backwards, an index that skips.
+    Those mean the chunker has a bug, and the pipeline should stop persisting its output
+    rather than write a corrupt index that looks fine.
+    """
+
+    user_message = "A source document could not be divided into passages."
+
+
+class EmbeddingError(IngestionError):
+    """The embedding model failed, or returned something of the wrong shape.
+
+    The shape check is the important half. A model that silently returns 512-dimensional
+    vectors into a 384-dimensional collection, or that returns fewer vectors than the
+    texts it was given, corrupts the index in a way no downstream component can detect:
+    retrieval keeps working and simply returns the wrong passages.
+    """
+
+    user_message = "The embedding model is unavailable."

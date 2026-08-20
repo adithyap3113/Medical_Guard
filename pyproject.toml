@@ -8,10 +8,14 @@ authors = [
 ]
 requires-python = ">=3.11"
 
-# Phase 1 core runtime. Deliberately excluded, and why:
-#   torch / sentence-transformers -> CPU-only 8 GB machine; ONNX via fastembed lands in Phase 4
+# Core runtime. Deliberately excluded, and why:
+#   torch / sentence-transformers -> CPU-only 8 GB machine; fastembed runs BGE-small on ONNX
 #   anthropic, openai             -> Gemini is the only generation provider
-#   langchain                     -> not used as an application framework
+#   langchain / llama-index       -> not used as an application framework; the chunker is
+#                                    ~200 lines of this project's own code, and langchain's
+#                                    splitter takes flat strings, which destroys the page
+#                                    spans every citation depends on
+#   unstructured                  -> pulls a deep ML stack for capability PyMuPDF covers
 dependencies = [
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.15,<3",
@@ -33,6 +37,16 @@ dependencies = [
     # Corpus source list. Declared explicitly rather than relied on transitively via
     # uvicorn[standard], which could drop it without warning.
     "pyyaml>=6.0,<7",
+    # PDF text extraction. AGPL-3.0 (or a commercial licence from Artifex) -- the only
+    # copyleft dependency in the tree, and a deliberate choice: it is the fastest and most
+    # accurate open PDF text extractor, and MedGuard is itself an open project that never
+    # distributes a binary, so the AGPL's network-use clause is satisfiable. Noted in the
+    # README licence section because it is the one dependency whose terms would matter to
+    # anyone reusing this commercially.
+    "pymupdf>=1.28,<2",
+    # ONNX-runtime embeddings, dense (BGE-small) and sparse (BM25) from one library. No
+    # torch, no transformers: the whole point is that a CPU-only 8 GB machine can run it.
+    "fastembed>=0.8,<0.9",
 ]
 
 [project.optional-dependencies]
@@ -124,6 +138,14 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# PyMuPDF ships annotations for some of its surface and not for the parts this project
+# uses: `pymupdf.open` and `Document.close` are untyped, which strict mode rejects as
+# calls into untyped code. Narrowed to the one module allowed to import PyMuPDF at all,
+# so the relaxation cannot spread past the adapter boundary.
+module = ["medguard.ingestion.parser"]
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
 
@@ -134,6 +156,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: requires live external services (Qdrant, Gemini); deselect with -m 'not integration'",
     "network: performs real network calls",
+    "slow: loads a real embedding model (downloads ~130 MB on first run, ~10s per test); deselect with -m 'not slow'",
 ]
 filterwarnings = ["error::DeprecationWarning:medguard.*"]
 

@@ -238,7 +238,8 @@ class EmbeddingSettings(BaseSettings):
 class IngestionSettings(BaseSettings):
     """Parse-and-chunk configuration (env prefix ``INGESTION_``).
 
-    Declared in Phase 3A, *used* in Phase 3B. The values exist now because the chunking
+    Declared in Phase 3A, used by the ingestion pipeline from Phase 3B. They live here
+    rather than as literals in the chunker because the chunking
     parameters are the single most consequential retrieval decision in the project and
     they deserve to be argued about in a config file rather than discovered as literals
     buried in a chunker.
@@ -303,8 +304,11 @@ class IngestionSettings(BaseSettings):
         default=8,
         gt=0,
         le=512,
-        description="Documents processed per ingestion batch. Matches the embedding "
-        "batch size for the same memory reason; see EmbeddingSettings.batch_size.",
+        description="Chunks embedded and upserted per batch. Matches the embedding "
+        "batch size for the same memory reason -- see EmbeddingSettings.batch_size -- "
+        "and the pipeline halves it automatically when available memory drops below "
+        "300 MB, abandoning the document below 150 MB rather than being killed "
+        "partway through and leaving a half-populated collection.",
     )
 
     @model_validator(mode="after")

@@ -142,7 +142,16 @@ class DocumentRow(Base):
     )
     publication_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     local_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: What the *manifest* says this file is. Owned by the corpus commands, which keep
+    #: it in step with the bytes on disk.
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: What ingestion last built chunks from. Owned by the pipeline, and deliberately a
+    #: separate column from ``sha256``: that one tracks the file, this one tracks the
+    #: index, and the whole point is that they can disagree. When a publisher revises a
+    #: guideline in place, ``corpus download`` moves ``sha256`` forward; until a
+    #: re-ingestion moves this one, the index is serving the superseded edition. Null
+    #: means "never successfully indexed", never "unchanged".
+    indexed_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     #: Null until Phase 3 parses the PDF. Null means "not counted yet", never "zero".
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -180,6 +189,10 @@ class DocumentRow(Base):
         Index("ix_documents_ingestion_status", "ingestion_status"),
         CheckConstraint("file_size_bytes >= 0", name="file_size_non_negative"),
         CheckConstraint("length(sha256) = 64", name="sha256_length"),
+        CheckConstraint(
+            "indexed_sha256 IS NULL OR length(indexed_sha256) = 64",
+            name="indexed_sha256_length",
+        ),
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -240,6 +253,17 @@ class ChunkRow(Base):
         CheckConstraint(
             "page_start IS NULL OR page_end IS NULL OR page_end >= page_start",
             name="page_range_ordered",
+        ),
+        # Pages are 1-based because that is how every reader, every printed index and
+        # every clinician counts them. PyMuPDF counts from 0, so "page 0" is the exact
+        # shape an unconverted parser index takes -- an off-by-one that produces a
+        # citation to a page that does not exist and is otherwise completely silent.
+        # `NULL` still means "not known": a CHECK passes on NULL, but the null branches
+        # are written out rather than relied on, because the reader of a constraint
+        # should not have to recall SQL's three-valued logic to know what it permits.
+        CheckConstraint(
+            "(page_start IS NULL OR page_start >= 1) AND (page_end IS NULL OR page_end >= 1)",
+            name="page_numbers_positive",
         ),
     )
 

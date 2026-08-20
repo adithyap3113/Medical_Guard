@@ -109,6 +109,50 @@ class TestRejectedRanges:
             s.add(_chunk(0, 8, 7))
 
 
+class TestPagesAreOneBased:
+    """Page zero is not a page. It is an unconverted PyMuPDF index.
+
+    PyMuPDF numbers pages from 0, so a parser that forgets to convert produces citations
+    that are consistently one page early and make the last page of every document
+    unreachable. Nothing about that is visibly wrong downstream -- the number renders,
+    it looks plausible -- so the database refuses it at the point of insert.
+    """
+
+    def test_page_zero_is_rejected(self, database: Database) -> None:
+        with pytest.raises(IntegrityError, match="page_numbers_positive"), database.session() as s:
+            s.add(_chunk(0, 0, 0))
+
+    def test_a_zero_start_with_a_valid_end_is_rejected(self, database: Database) -> None:
+        with pytest.raises(IntegrityError, match="page_numbers_positive"), database.session() as s:
+            s.add(_chunk(0, 0, 5))
+
+    def test_a_zero_end_alone_is_rejected(self, database: Database) -> None:
+        """`page_start` null means the ordering constraint has nothing to say here."""
+        with pytest.raises(IntegrityError, match="page_numbers_positive"), database.session() as s:
+            s.add(_chunk(0, None, 0))
+
+    def test_page_one_is_the_smallest_accepted_value(self, database: Database) -> None:
+        with database.session() as session:
+            session.add(_chunk(0, 1, 1))
+        with database.session() as session:
+            row = session.get(ChunkRow, "cdc_example_2024::0000")
+            assert row is not None
+            assert (row.page_start, row.page_end) == (1, 1)
+
+    def test_null_is_still_not_page_zero(self, database: Database) -> None:
+        """The constraint must not have collapsed "unknown" into "invalid"."""
+        with database.session() as session:
+            session.add(_chunk(0, None, None))
+        with database.session() as session:
+            assert session.get(ChunkRow, "cdc_example_2024::0000") is not None
+
+    def test_the_constraint_is_named(self, database: Database) -> None:
+        from sqlalchemy import inspect
+
+        names = {c["name"] for c in inspect(database.engine).get_check_constraints("chunks")}
+        assert "ck_chunks_page_numbers_positive" in names
+
+
 class TestTheOldColumnIsGone:
     def test_chunks_has_page_start_and_page_end_and_no_page(self, database: Database) -> None:
         from sqlalchemy import inspect

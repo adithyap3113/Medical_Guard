@@ -139,10 +139,27 @@ project, at this phase.
 ### One substitution within NHLBI
 
 The paediatric cardiovascular entry was specified as `peds_guidelines_sum.pdf` (the
-summary report). That filename returns **HTTP 404** at every path tried on 2026-08-13;
-only `peds_guidelines_full.pdf` resolves. The full report is used instead, and is the
-better corpus document regardless: it carries the graded evidence statements that the
-summary condenses away.
+summary report). That filename returns **HTTP 404** at every path tried on 2026-08-13:
+
+```
+https://www.nhlbi.nih.gov/files/docs/guidelines/peds_guidelines_sum.pdf        404
+https://www.nhlbi.nih.gov/sites/default/files/media/docs/peds_guidelines_sum.pdf  404
+https://www.nhlbi.nih.gov/sites/default/files/publications/peds_guidelines_sum.pdf 404
+```
+
+`peds_guidelines_full.pdf` resolves at the second of those paths and is what the corpus
+records. The substitution is not a compromise. The summary report condenses the graded
+evidence tables — the "Grade A / Grade B, consistent evidence from RCTs" annotations —
+into prose recommendations that drop the grade, and those tables are the single most
+useful thing in the document **for retrieval specifically**: a chunk that says
+"screen at ages 9–11 (Grade B)" answers a clinical question in a way the summary's
+"screening is recommended in late childhood" does not, and it carries the strength of
+the recommendation into the citation a clinician reads. The full report is the better
+source material, and the 404 forced a better choice than the one originally specified.
+
+The consequence to be aware of: the full report is ~3.6 MB and considerably longer than
+the summary, so it produces proportionally more chunks. That is visible in the ingestion
+summary, not a defect.
 
 ---
 

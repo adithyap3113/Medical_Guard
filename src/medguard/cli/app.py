@@ -1,7 +1,7 @@
 """``medguard`` command-line entry point.
 
-Phases 1-2 implement ``doctor``, ``serve``, ``corpus`` and ``db``. ``ingest``, ``query``
-and ``eval`` are declared with their real signatures but raise ``NotImplementedError``.
+``doctor``, ``serve``, ``corpus``, ``db`` and ``ingest`` are implemented. ``query`` and
+``eval`` are declared with their real signatures but raise ``NotImplementedError``.
 
 That is deliberate. The alternative -- omitting them until their phase -- hides the
 shape of the system, while a stub that silently returns nothing is worse than one that
@@ -21,6 +21,7 @@ from medguard.cli.bootstrap import bootstrap as _bootstrap
 from medguard.cli.bootstrap import console, err_console
 from medguard.cli.corpus import corpus_app
 from medguard.cli.db import db_app
+from medguard.cli.ingest import ingest
 from medguard.config import get_settings
 from medguard.models import MEDICAL_DISCLAIMER, QueryStrategy
 
@@ -114,26 +115,14 @@ def serve(
     )
 
 
+# Registered from its own module: the command body imports the pipeline, the embedders
+# and ONNX Runtime, and none of that should load for `medguard --help`.
+app.command()(ingest)
+
+
 # ---------------------------------------------------------------------------
 # Declared now, implemented in later phases.
 # ---------------------------------------------------------------------------
-
-
-@app.command()
-def ingest(
-    source: Annotated[Path, typer.Argument(help="PDF file or directory of PDFs to ingest.")] = Path(
-        "data/raw"
-    ),
-    recreate: Annotated[
-        bool, typer.Option(help="Drop and rebuild the collection before ingesting.")
-    ] = False,
-) -> None:
-    """[dim]Phase 3[/] — Parse, chunk, embed and index documents."""
-    _bootstrap()
-    err_console.print(
-        f"[yellow]Not implemented yet.[/] Ingestion lands in Phase 3 (would ingest: {source})."
-    )
-    raise NotImplementedError("Ingestion is implemented in Phase 3.")
 
 
 @app.command()

@@ -61,8 +61,21 @@ class DenseEmbedder(Protocol):
     regression that is very hard to spot without an evaluation harness.
     """
 
-    model_id: str
-    dimension: int
+    #: Read-only, and declared as properties rather than as bare attributes for a
+    #: reason that only shows up in the type checker: a bare ``model_id: str`` in a
+    #: Protocol means a *settable* attribute, which an implementation exposing it as a
+    #: ``@property`` does not satisfy. Since nothing should ever assign an embedder a
+    #: different model id after construction, read-only is also the honest declaration.
+    #: A plain attribute still satisfies it.
+    @property
+    def model_id(self) -> str:
+        """Identifier of the underlying model, for logs and diagnostics."""
+        ...
+
+    @property
+    def dimension(self) -> int:
+        """Width of the vectors produced. Must match the collection's configuration."""
+        ...
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed passages for indexing."""
@@ -83,7 +96,10 @@ class SparseEmbedder(Protocol):
     an assumption -- which is exactly why the baseline is measured first.
     """
 
-    model_id: str
+    @property
+    def model_id(self) -> str:
+        """Identifier of the underlying model. Read-only; see :class:`DenseEmbedder`."""
+        ...
 
     def embed_documents(self, texts: list[str]) -> list[SparseVector]:
         """Embed passages for indexing."""

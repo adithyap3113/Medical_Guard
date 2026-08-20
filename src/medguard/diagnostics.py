@@ -34,6 +34,8 @@ __all__ = [
     "Check",
     "CheckStatus",
     "DiagnosticReport",
+    "available_ram_mb",
+    "check_ram_pressure",
     "run_diagnostics",
 ]
 
@@ -148,6 +150,28 @@ def check_memory() -> Check:
     )
 
 
+def available_ram_mb() -> float:
+    """Memory available right now, in MB.
+
+    ``available`` rather than ``free``: on every modern OS most of "free" memory is page
+    cache that will be reclaimed on demand, so ``free`` reports a machine as starved
+    while it is fine. ``available`` is the kernel's own estimate of what can actually be
+    handed to a process without swapping, which is the number an embedding batch cares
+    about.
+    """
+    return float(psutil.virtual_memory().available) / 1024 / 1024
+
+
+def check_ram_pressure(threshold_mb: int = 300) -> bool:
+    """True when available memory is below `threshold_mb`.
+
+    Used by the ingestion pipeline before each embedding batch and by the ``ingest``
+    preflight. A predicate rather than a :class:`Check` because it is consumed by code
+    making a decision, not by a person reading a table.
+    """
+    return available_ram_mb() < threshold_mb
+
+
 def check_gpu() -> Check:
     """Detect an accelerator usable for local inference.
 
@@ -246,6 +270,20 @@ def check_qdrant(settings: Settings, *, timeout_s: int | None = None) -> Check:
     finally:
         store.close()
 
+    # Critical exactly when the collection exists, which is Decision C made operational.
+    #
+    # The reasoning: criticality should track whether the system actually *depends* on
+    # Qdrant, and that changes the moment there is an index. Before ingestion, an
+    # unreachable Qdrant is an expected state -- there is nothing to serve, and a red
+    # light for an expected condition trains people to ignore the whole report. Once a
+    # collection exists, every query depends on it, and an unreachable Qdrant means the
+    # system cannot answer anything; reporting that as a warning would let a readiness
+    # probe pass on a system that serves nothing.
+    #
+    # Derived rather than configured, so it cannot fall out of step with reality.
+    collection_exists = bool(health.collection_exists)
+    critical = collection_exists
+
     if not health.reachable:
         return Check(
             name="Qdrant",
@@ -253,19 +291,92 @@ def check_qdrant(settings: Settings, *, timeout_s: int | None = None) -> Check:
             detail=f"unreachable at {health.url} ({health.error}). "
             "Start it with `docker compose -f docker/docker-compose.yml up -d qdrant`.",
             latency_ms=health.latency_ms,
+            # Unreachable means the collection's existence is unknown, not that it is
+            # absent. Escalating on a guess would fail the probe for a system that has
+            # never been ingested into.
+            critical=False,
         )
 
-    if health.collection_exists:
+    if collection_exists:
+        points = health.points_count if health.points_count is not None else "?"
         detail = (
             f"reachable at {health.url}; collection {health.collection!r} "
-            f"exists with {health.points_count if health.points_count is not None else '?'} points"
+            f"exists with {points} points — retrieval depends on it, so this check is "
+            "critical"
         )
     else:
         detail = (
             f"reachable at {health.url}; collection {health.collection!r} "
-            "not created yet (expected before Phase 3 ingestion)"
+            "not created yet — run `medguard ingest`"
         )
-    return Check(name="Qdrant", status=CheckStatus.OK, detail=detail, latency_ms=health.latency_ms)
+    return Check(
+        name="Qdrant",
+        status=CheckStatus.OK,
+        detail=detail,
+        latency_ms=health.latency_ms,
+        critical=critical,
+    )
+
+
+def check_index(settings: Settings) -> Check:
+    """Compare the chunk count in SQL against the point count in Qdrant.
+
+    These two numbers are written by the same operation and have no reason to differ.
+    When they do, something happened between the two stores that nothing else reports: a
+    run killed partway through, a collection dropped by hand, a delete that half
+    succeeded. The symptom downstream is not an error -- retrieval keeps working and
+    quietly returns part of the corpus.
+
+    Non-critical. A drifted index is fixed by re-running ``medguard ingest``, which is a
+    prompt rather than an outage, and failing the readiness probe would take the API
+    down for a condition the API can still serve around.
+    """
+    from sqlalchemy import func, select
+
+    from medguard.storage.database import Database
+    from medguard.storage.schema import ChunkRow
+    from medguard.storage.vector_store import VectorStore
+
+    store = VectorStore(settings)
+    try:
+        health = store.health()
+        if not health.reachable:
+            return Check(
+                name="Index", status=CheckStatus.SKIP, detail="skipped — Qdrant unreachable"
+            )
+        if not health.collection_exists:
+            return Check(
+                name="Index",
+                status=CheckStatus.SKIP,
+                detail="skipped — no collection yet; run `medguard ingest`",
+            )
+        points = store.collection_points_count()
+    except Exception as exc:  # noqa: BLE001 - a diagnostic never takes the process down
+        return Check(name="Index", status=CheckStatus.SKIP, detail=f"skipped — {exc}")
+    finally:
+        store.close()
+
+    db = Database(settings)
+    try:
+        with db.session() as session:
+            chunks = int(session.scalar(select(func.count()).select_from(ChunkRow)) or 0)
+    except Exception as exc:  # noqa: BLE001 - database reachability is check_database's job
+        return Check(name="Index", status=CheckStatus.SKIP, detail=f"skipped — {exc}")
+    finally:
+        db.dispose()
+
+    if chunks == points:
+        return Check(
+            name="Index",
+            status=CheckStatus.OK,
+            detail=f"{chunks} chunks in the database, {points} points in Qdrant",
+        )
+    return Check(
+        name="Index",
+        status=CheckStatus.FAIL,
+        detail=f"{chunks} chunks in the database but {points} points in Qdrant. "
+        "The two stores have drifted; re-run `medguard ingest` to reconcile.",
+    )
 
 
 def check_database(settings: Settings) -> Check:
@@ -547,18 +658,21 @@ def check_migrations(settings: Settings) -> Check:
 
 
 def check_embedding_config(settings: Settings) -> Check:
-    """Report the embedding plan without loading anything.
+    """Report the embedding configuration without loading a model.
 
-    No model weights are downloaded before Phase 3B, so this states intent and the
-    collection name that will be used, letting you catch a misconfiguration before
-    ingestion spends bandwidth on it.
+    Deliberately does not instantiate the embedders. Doing so would download roughly
+    130 MB on a fresh machine and allocate an ONNX session, and ``medguard doctor`` is
+    the command people run *to find out whether things are set up* -- it must not be the
+    command that spends the bandwidth. What it can do for free is confirm the collection
+    name the configuration implies, which is where a mismatched model or dimension shows
+    up before ingestion writes anything.
     """
     return Check(
         name="Embeddings",
-        status=CheckStatus.SKIP,
-        detail=f"not loaded yet (Phase 3B). Planned: {settings.embedding.model} "
-        f"({settings.embedding.dimension}d) + {settings.embedding.sparse_model} "
-        f"→ collection {settings.collection_name!r}",
+        status=CheckStatus.OK,
+        detail=f"{settings.embedding.model} ({settings.embedding.dimension}d) + "
+        f"{settings.embedding.sparse_model} → collection {settings.collection_name!r} "
+        "(loaded on first use, not now)",
     )
 
 
@@ -590,6 +704,7 @@ def run_diagnostics(
         check_database(s),
         check_migrations(s),
         check_qdrant(s, timeout_s=network_timeout_s),
+        check_index(s),
         check_corpus(s),
         check_gemini_key(s),
         *check_gemini_models(s, smoke_test=smoke_test),

@@ -111,11 +111,16 @@ class TestDerivedIdsAreDeterministic:
         assert point_id.version == 5
 
 
-class TestPhase3ADoesNotUseItYet:
-    def test_nothing_in_src_derives_point_ids_yet(self) -> None:
-        """Phase 3A declares the namespace; Phase 3B is what may consume it.
+class TestExactlyOneModuleDerivesPointIds:
+    def test_the_bridge_lives_in_one_place(self) -> None:
+        """Phase 3A declared the namespace; Phase 3B consumes it -- in one module only.
 
-        Parsed, not grepped: both `constants.py` and `schema.py` document the uuid5
+        A second call site is how two components end up disagreeing about a point id:
+        one passes the chunk id, another passes the chunk text or a document id, and the
+        collection quietly accumulates duplicates that no delete-by-document removes.
+        Everything else calls `point_id_for`.
+
+        Parsed, not grepped: `constants.py` and `schema.py` both *document* the uuid5
         bridge in prose, and a substring search cannot tell an explanation from a call.
         """
         src = project_root() / "src"
@@ -124,7 +129,16 @@ class TestPhase3ADoesNotUseItYet:
             for path in src.rglob("*.py")
             if "uuid5" in called_functions(path.read_text(encoding="utf-8"))
         ]
-        assert users == [], f"uuid5 is a Phase 3B concern; found in {users}"
+        assert users == ["medguard/storage/vector_store.py"], (
+            f"uuid5 must be called in exactly one module; found in {users}"
+        )
+
+    def test_the_bridge_is_exported_for_everyone_else(self) -> None:
+        from medguard.storage.vector_store import point_id_for
+
+        assert point_id_for("cdc_anthrax_2023::0007") == str(
+            uuid.uuid5(MEDGUARD_UUID_NAMESPACE, "cdc_anthrax_2023::0007")
+        )
 
     def test_the_constant_lives_outside_config(self) -> None:
         """In config.py it would look tunable, which is exactly what it is not."""

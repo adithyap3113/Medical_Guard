@@ -26,7 +26,7 @@ uv sync
 # 2. Configure
 cp .env.example .env        # then add GEMINI_API_KEY — free at https://aistudio.google.com/apikey
 
-# 3. Start the vector database (optional until Phase 3)
+# 3. Start the vector database (needed by `medguard ingest`)
 docker compose -f docker/docker-compose.yml up -d
 
 # 4. Create the database schema
@@ -148,6 +148,7 @@ uv run medguard corpus verify      # check every file against the manifest
 uv run medguard corpus verify -v   # also report what the database knows and it does not
 uv run medguard corpus sync        # record a file that exists but was never logged
 uv run medguard corpus sync --backfill-page-counts   # promote values into null fields
+uv run medguard ingest             # parse, chunk, embed and index the corpus
 ```
 
 `verify` exits non-zero on any integrity error, so it works as a CI gate. A hash
@@ -175,9 +176,10 @@ Four rules, and they are enforced rather than encouraged:
    that rewrites its own provenance record has destroyed the only independent check on
    itself. This is enforced by a test, not by convention.
 
-`page_count` is `null` for every document: counting pages needs a PDF parser, which
-arrives with Phase 3B. The field exists now so the schema stays stable across that
-boundary.
+`page_count` is filled in by `medguard ingest`, which is the first thing in the
+project able to count pages. It stays `null` in the committed manifest until a human
+promotes it with `corpus sync --backfill-page-counts`, for the reason in rule 4: the
+pipeline is not allowed to write its own provenance record.
 
 ### What is in it, and what is not
 
@@ -186,11 +188,58 @@ primary research. A corpus containing single trials will answer "what is the fir
 treatment for X" from one study with n=40, which is a retrieval-quality problem that no
 amount of reranking fixes.
 
-It is also entirely CDC, which is a real limitation and not a preference. NICE and
+Publisher diversity is limited, and the limit is imposed rather than chosen. NICE and
 NIH's `clinicalinfo.hiv.gov` return HTTP 403 to scripted requests; WHO IRIS returns a
 consent interstitial; and PubMed Central has added a JavaScript proof-of-work challenge
-in front of its PDFs. [`data/raw/SOURCES.md`](data/raw/SOURCES.md) records each of those
-findings with its evidence, along with every substitution made.
+in front of its PDFs. Phase 3A added NHLBI and ICMR, taking the corpus to four
+publishers and one non-US source. [`data/raw/SOURCES.md`](data/raw/SOURCES.md) records
+each of those findings with its evidence, along with every substitution made.
+
+---
+
+## Ingestion
+
+```bash
+uv run medguard ingest                       # parse, chunk, embed, index
+uv run medguard ingest --dry-run             # parse and chunk only; loads no model
+uv run medguard ingest --only cdc_anthrax_2023
+uv run medguard ingest --limit 3
+uv run medguard ingest --force-recreate      # DESTRUCTIVE: drop and rebuild the index
+```
+
+Four stages, three of them pure functions of their input:
+
+| Stage | Module | Pure? |
+|---|---|---|
+| PDF → pages of text, 1-based page numbers | `ingestion/parser.py` | no (reads files) |
+| de-hyphenation, whitespace, running headers | `ingestion/cleaner.py` | yes |
+| recursive character split, page spans preserved | `ingestion/chunker.py` | yes |
+| SQL rows + Qdrant points, per document | `ingestion/pipeline.py` | no (owns all state) |
+
+**It is idempotent, and that claim has three parts.** A document is skipped only when
+all of these hold: its status is `indexed`; the file on disk still hashes to what was
+*indexed* (`documents.indexed_sha256`, which is deliberately a different column from the
+manifest's `sha256`); and Qdrant holds exactly as many points for it as the database has
+chunks. Dropping any one clause produces a system that reports success over an index
+that cannot answer anything — which is the worst outcome available, because it looks
+fine. If the collection is lost, the chunk rows in SQL are re-embedded without
+re-parsing the PDFs.
+
+**One document failing does not stop the run.** Each document is its own transaction and
+its own error boundary; a failure records the reason on the row, removes any points that
+document had, and moves on. The command exits non-zero if anything failed, because a
+run that indexed eighteen of twenty documents has not succeeded.
+
+**A dry run writes nothing** — no database rows, no Qdrant points, and no embedding
+model is even loaded. It prints real page and chunk counts plus the first few chunks
+verbatim, because counts cannot distinguish a chunker that splits on paragraphs from one
+that cuts mid-sentence, and reading the text either side of a boundary can.
+
+**Memory is the binding constraint on this hardware.** Ingestion refuses to start below
+300 MB available, halves its batch size under pressure, and abandons a document below
+150 MB rather than being killed by the OS partway through — which would leave a
+half-populated collection and no error anywhere. Parsing and chunking the whole 20-
+document corpus peaks at 378 MB RSS.
 
 ---
 
@@ -207,7 +256,7 @@ uv run medguard db downgrade base       # roll back (prompts first — this drop
 ```
 
 Two tables: `documents` (one row per corpus document, plus ingestion state) and
-`chunks` (empty until Phase 3). `medguard doctor` reports when the database's schema
+`chunks` (one row per retrievable passage, written by `medguard ingest`). `medguard doctor` reports when the database's schema
 version is behind the code, which turns an otherwise baffling `no such column` deep
 inside a request into one line of diagnostic output.
 
@@ -256,7 +305,7 @@ Phase 14.
 | 1 | Foundation: config, logging, domain models, provider, CLI, API, diagnostics | **Done** |
 | 2 | Corpus acquisition, provenance manifest, database schema, migrations | **Done** — 14 documents, Qdrant persistence verified |
 | 3A | Corpus expansion, page-range schema, backfill, ingestion config | **Done** — 20 documents, 4 publishers |
-| 3B | Ingestion: PDF parsing, chunking, page counts, embeddings, indexing | Not started |
+| 3B | Ingestion: PDF parsing, cleaning, chunking, embeddings, Qdrant indexing | **Done** — 20 documents, 2,058 pages, 5,158 chunks |
 | 4 | Dense retrieval | Not started |
 | 5 | Baseline RAG | Not started |
 | 6–8 | Sparse retrieval, hybrid RRF fusion, cross-encoder reranking | Not started |
@@ -300,7 +349,8 @@ src/medguard/
   corpus/              source list, safe download, provenance manifest
   providers/           LLM provider contract + the Gemini adapter
   constants.py         values that must never change once data exists
-  embeddings/          embedding contracts (no implementation until Phase 3B)
+  embeddings/          embedding contracts + the fastembed (ONNX) implementations
+  ingestion/           parser, cleaner, chunker, and the ingestion pipeline
   storage/             Qdrant adapter, SQLAlchemy engine, ORM schema
   observability/       tracing abstraction with a no-op fallback
   cli/                 Typer application
@@ -316,11 +366,19 @@ migrations/            Alembic environment and revision history
 ```
 
 Only `providers/gemini.py` may import `google.genai`. Everything else depends on the
-vendor-neutral contract in `providers/base.py`.
+vendor-neutral contract in `providers/base.py`. The same rule holds for the two
+other vendor surfaces: `ingestion/parser.py` is the only module that imports
+PyMuPDF, and `embeddings/fastembed_*.py` the only ones that import fastembed.
 
 ---
 
 ## Licence and sources
+
+**Dependency note.** PyMuPDF, used for PDF text extraction, is AGPL-3.0 (or a
+commercial licence from Artifex). It is the only copyleft dependency in the tree.
+That is fine for this project, which is open and distributes no binary, but it is
+the one dependency whose terms would matter to anyone reusing this commercially.
+Everything else is permissively licensed.
 
 Source documents are published clinical guidance from CDC, NIH/NHLBI, ICMR and WHO.
 Each document's provenance, licence terms, content hash and size are recorded in
