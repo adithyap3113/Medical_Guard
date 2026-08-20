@@ -328,22 +328,23 @@ documents:
   # guidance encodes US practice as though it were the whole of medicine.
   #
   # Titles are taken from ICMR's own guidelines listing page. That listing prefixes
-  # each entry with its year ("2022-Treatment Guidelines For Antimicrobial Use in
-  # Common Syndromes"); the prefix is a listing convention rather than part of the
+  # each entry with its year ("2022- Guidance on Diagnosis & Management of Carbapenem
+  # Resistant Gram-negative Infections"); the prefix is a listing convention rather
+  # than part of the
   # title, so it is dropped here and the exact listing text is recorded in
   # data/raw/SOURCES.md for anyone who wants to check.
   #
   # publication_date is null for all three: the listing states a year only.
   # ---------------------------------------------------------------------------
 
-  - document_id: icmr_amr_treatment_2022
-    title: Treatment Guidelines for Antimicrobial Use in Common Syndromes
-    source_url: https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/treatment_amr_2022.pdf
+  - document_id: icmr_diagnosis_management_cros
+    title: Guidance on Diagnosis & Management of Carbapenem Resistant Gram-negative Infections
+    source_url: https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/Diagnosis_and_management_of_CROs.pdf
     source_organization: ICMR
     document_type: guideline
     publication_date: null
     version_or_revision: "2022"
-    local_filename: icmr_amr_treatment_2022.pdf
+    local_filename: icmr_diagnosis_management_cros.pdf
     license_or_usage_note: >-
       Material featured on this Website may be reproduced free of charge. However, the
       material has to be reproduced accurately and not to be used in a derogatory
@@ -354,10 +355,12 @@ documents:
       material must be obtained from the departments/copyright holders concerned.
       (https://www.icmr.gov.in/copyright-policy)
     notes: >-
-      ICMR's listing prints this as "2022-Treatment Guidelines For Antimicrobial Use in
-      Common Syndromes". The 2019 edition is deliberately NOT in this corpus; see
-      data/raw/SOURCES.md for why two live versions of the same treatment guidance is
-      a retrieval hazard rather than a feature.
+      Replaces icmr_amr_treatment_2022, which turned out to be a QR-code landing
+      page rather than the guidance its filename promised; see data/raw/SOURCES.md.
+      ICMR's listing prints this as "2022- Guidance on Diagnosis & Management of
+      Carbapenem Resistant Gram-negative Infections", so the year goes to
+      version_or_revision under the convention above. publication_date stays null:
+      the listing states a year and nothing finer.
 
   - document_id: icmr_type2_diabetes_2018
     title: Guidelines for Management of Type 2 Diabetes
@@ -404,10 +407,17 @@ documents:
   # ---------------------------------------------------------------------------
   # Retired entries.
   #
-  # Kept, not deleted: the file is already in data/raw/ from Phase 1, and dropping the
-  # entry would leave a document with no provenance record and make `corpus verify`
-  # report an orphan forever. `retired: true` means "do not attempt to download",
-  # not "not part of the corpus".
+  # Kept, not deleted: dropping the entry would leave the document with no provenance
+  # record at all, and -- where the file is still on disk -- make `corpus verify` report
+  # an orphan forever. `retired: true` means "do not attempt to download", not "never
+  # part of the corpus".
+  #
+  # Retirement says nothing on its own about the file, and the two entries below are
+  # deliberately treated differently. who_hypertension_2021 keeps its copy in data/raw/
+  # and stays indexed: the document is sound, only its URL died. The file for
+  # icmr_amr_treatment_2022 is deleted, because the document is empty of clinical
+  # content -- and because a file left in data/raw/ is picked up by the next manifest
+  # build and re-indexed regardless of this flag.
   # ---------------------------------------------------------------------------
 
   - document_id: who_hypertension_2021
@@ -434,3 +444,34 @@ documents:
       Title as recorded in Phase 1 and not independently re-verified in Phase 2, for
       the same reason the licence could not be. Flagged for re-check when a PDF parser
       lands in Phase 3.
+
+  - document_id: icmr_amr_treatment_2022
+    title: Treatment Guidelines for Antimicrobial Use in Common Syndromes
+    source_url: https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/treatment_amr_2022.pdf
+    source_organization: ICMR
+    document_type: guideline
+    publication_date: null
+    version_or_revision: "2022"
+    local_filename: icmr_amr_treatment_2022.pdf
+    retired: true
+    retired_reason: >-
+      The URL serves a one-page QR-code landing page, not the guidelines. Phase 3B
+      parsed it and recovered 110 characters -- a title, a subtitle, and "Please scan
+      above QR Code to get the link" -- which chunked to a single chunk of no
+      clinical value. It passed every Phase 3A check (HTTP 200, %PDF- magic, 434 KB,
+      sha256 verified) because not one of those checks could read the document.
+      Replaced by icmr_diagnosis_management_cros, which is the guidance ICMR's own
+      listing points the QR code at.
+    license_or_usage_note: >-
+      Material featured on this Website may be reproduced free of charge. However, the
+      material has to be reproduced accurately and not to be used in a derogatory
+      manner or in a misleading context. Wherever the material is being published or
+      issued to others, the source must be prominently acknowledged. However, the
+      permission to reproduce this material shall not extend to any material which is
+      identified as being copyright of a third party. Authorization to reproduce such
+      material must be obtained from the departments/copyright holders concerned.
+      (https://www.icmr.gov.in/copyright-policy)
+    notes: >-
+      The 2019 edition of these treatment guidelines is not in the corpus either;
+      see data/raw/SOURCES.md for why two live editions of the same treatment
+      guidance is a retrieval hazard rather than a feature.

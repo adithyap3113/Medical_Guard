@@ -10,7 +10,8 @@ describes.
 
 **Every URL below was fetched and confirmed to return `%PDF-` magic bytes** — the CDC
 and WHO entries on 2026-08-13 during Phase 2, the NIH and ICMR entries on 2026-08-13
-during Phase 3A. Content-type was not treated as proof: several publishers serve an HTML
+during Phase 3A, and `icmr_diagnosis_management_cros` on 2026-08-20 during Phase 3B
+closure. Content-type was not treated as proof: several publishers serve an HTML
 consent page or WAF block under a `.pdf` URL with HTTP 200 and
 `content-type: application/pdf`.
 
@@ -18,18 +19,21 @@ consent page or WAF block under a `.pdf` URL with HTTP 200 and
 
 ## Corpus composition
 
-20 entries, 19 downloadable, 1 retired, across 4 publishers.
+21 entries, 19 downloadable, 2 retired, across 4 publishers. 20 documents are held
+on disk and indexed: the 19 downloadable ones plus `who_hypertension_2021`, whose
+file is kept. `icmr_amr_treatment_2022` is retired *and* its file deleted, so it is
+the one entry with no manifest record; the reason is below.
 
 | Publisher | Documents | Reuse terms |
 |---|---:|---|
 | CDC | 13 | Stated verbatim by the publisher (public domain) |
 | NIH (NHLBI) | 3 | **Not published by the source.** Recorded as unstated |
-| ICMR | 3 | Stated verbatim by the publisher (free reuse with attribution) |
+| ICMR | 3 (+1 retired) | Stated verbatim by the publisher (free reuse with attribution) |
 | WHO | 1 (retired) | Not verifiable; source page gated |
 
 | document_type | Count |
 |---|---:|
-| `guideline` | 19 |
+| `guideline` | 20 (19 active) |
 | `reference` | 1 |
 | `systematic_review` | 0 |
 | `review` | 0 |
@@ -193,7 +197,7 @@ listing text, and the title recorded in the manifest:
 
 | Listing text | Recorded title |
 |---|---|
-| `2022-Treatment Guidelines For Antimicrobial Use in Common Syndromes` | Treatment Guidelines for Antimicrobial Use in Common Syndromes |
+| `2022- Guidance on Diagnosis & Management of Carbapenem Resistant Gram-negative Infections` | Guidance on Diagnosis & Management of Carbapenem Resistant Gram-negative Infections |
 | `Guidelines for Management of Type 2 Diabetes` | Guidelines for Management of Type 2 Diabetes |
 | `2017-Hospital Infection Control Guidelines` | Hospital Infection Control Guidelines |
 
@@ -202,10 +206,15 @@ dropped; the year is recorded in `version_or_revision`. The listing text is repr
 above so the decision is checkable rather than merely asserted. **This is a judgement
 call** — a reviewer who disagrees can restore the prefix from the table above.
 
-### Why the 2019 AMR guidelines are not in the corpus
+### Why neither edition of the AMR treatment guidelines is in the corpus
 
 ICMR publishes both a 2019 and a 2022 edition of the antimicrobial treatment guidelines.
-Only 2022 is indexed.
+Phase 3A indexed only the 2022 edition. Phase 3B then found that the 2022 URL does not
+serve that edition at all — see the substitution note below — and it was retired, so
+**neither edition is in the corpus now**.
+
+The reasoning below is why the 2019 edition was not simply promoted in its place, and it
+is unchanged by the retirement.
 
 Two editions of the same live clinical guidance in one corpus means a query about
 first-line antimicrobial therapy retrieves **contradictory recommendations with equal
@@ -222,6 +231,62 @@ contradictory live medical guidance in front of a user.
 Those fixtures are generated at test time and never enter `data/raw/`,
 `data/sources.yaml` or `data/manifest.json`.
 
+### `icmr_amr_treatment_2022` — a QR code where a guideline should have been
+
+`treatment_amr_2022.pdf` is **not** the Treatment Guidelines for Antimicrobial Use in
+Common Syndromes. It is a one-page landing card holding a QR code, and the whole of its
+extractable text is 110 characters:
+
+> Treatment Guidelines / For Antimicrobial Use in Common Syndromes 2022 / Please scan
+> above QR Code to get the link
+
+It reached the corpus because **every check that could have caught it was a check that
+could not read it.** The URL returned HTTP 200. The body began with `%PDF-`. The file was
+434 KB, comfortably past the size floor. Its sha256 verified on every run, because the
+bytes never changed — they were simply the wrong bytes. Nothing short of a parser could
+tell the difference, and the parser arrived in Phase 3B, which is exactly when this
+surfaced.
+
+Indexed, it produced **one chunk of no clinical value**, indistinguishable in the vector
+store from a real passage and retrievable in answer to any antimicrobial question. A
+single decoy chunk in 5,158 is a small quality problem and an unbounded credibility one:
+a citation pointing at it is a citation to nothing.
+
+**Replacement.** ICMR's guidelines listing links the entry
+`2022- Guidance on Diagnosis & Management of Carbapenem Resistant Gram-negative
+Infections` to `Diagnosis_and_management_of_CROs.pdf`, which was fetched on 2026-08-20
+and confirmed to return `application/pdf` with `%PDF-` magic bytes; the stored file is
+1,681,576 bytes, against the 1.77 MB the listing advertises.
+
+That confirmation mattered more than usual here: `www.icmr.gov.in` answers **HTTP 200
+with an HTML 404 page** for any unknown path under this directory, so a status code
+proves nothing. Two case variants of the same filename and a deliberately absent control
+path all returned that HTML, which is what makes the positive result meaningful.
+
+The replacement stays within the same clinical territory — antimicrobial resistance —
+so the corpus does not lose a topic, and it is a genuine graded guidance document rather
+than a summary card. Parsed, it yields 24 pages and 38,268 characters — 1,594 per page,
+between its two ICMR siblings (1,199 and 1,892) and inside the corpus range of
+1,199–6,302. The QR-code card yielded 110 characters in total, which is the gap this
+substitution closes.
+
+Its title page states **"March, 2022"**, which is finer than the listing's bare year but
+still not a full date, so `publication_date` stays null under the same rule as every
+other entry here. The month is recorded in this paragraph rather than invented into a
+date field.
+
+**Why the file is deleted and `who_hypertension_2021`'s is not.** Retiring an entry stops
+the downloader, and nothing else. The manifest is built from *files present on disk*, so
+a retired document whose PDF remains in `data/raw/` is recorded, synced into the
+`documents` table, and re-indexed by the next `medguard ingest` as though nothing had
+happened. `who_hypertension_2021` is meant to stay indexed — a sound document behind a
+dead URL — so its file is kept. This one is meant to leave the index, so the file goes
+too, which drops it out of the manifest and out of `corpus verify` cleanly.
+
+**Impact on corpus size: none.** 21 entries, 19 active — one retired out, one added in.
+20 documents on disk and indexed, before and after. ICMR still contributes 3 active
+documents.
+
 ---
 
 ## Substitutions and removals
@@ -231,6 +296,7 @@ Those fixtures are generated at test time and never enter `data/raw/`,
 | `who_malaria_2023` (WHO IRIS) | Dropped, not replaced 1:1 | IRIS consent interstitial. CDC coverage of infectious-disease guidance (anthrax, botulism, TB, hepatitis B/C, HIV PrEP/PEP) substitutes for the topic area. |
 | `who_essential_medicines_2023` (WHO IRIS) | Dropped, not replaced 1:1 | IRIS consent interstitial. |
 | `who_hypertension_2021` | **Retired, file kept** | See below. |
+| `icmr_amr_treatment_2022` | `icmr_diagnosis_management_cros`, **file deleted** | The URL served a one-page QR-code landing card, not the guidelines. Caught in Phase 3B by the first check able to read a PDF. See the ICMR section above. |
 | NICE hypertension / diabetes / asthma / depression | Dropped | HTTP 403 from NICE's WAF. |
 | PMC systematic reviews | Dropped | JavaScript proof-of-work challenge. No `systematic_review` or `review` document made it into the corpus as a result. |
 | NHLBI `peds_guidelines_sum.pdf` | `peds_guidelines_full.pdf` | The summary filename 404s; the full report is the better document anyway. |
@@ -276,7 +342,7 @@ Under "never invent metadata", a field the publisher does not state is `null`. E
 | `nhlbi_sickle_cell_2014` | Landing page states the year 2014 (published September 2014); no full date. |
 | `nhlbi_pediatric_cv_2011` | Landing page states January 2012 for a 2011 expert panel. The two disagree and neither is a full date. |
 | `nhlbi_asthma_epr3_2007` | Landing page gives 2007 for the guidelines and September 2012 for the posted file. |
-| `icmr_amr_treatment_2022` | ICMR's listing states a year only. |
+| `icmr_diagnosis_management_cros` | ICMR's listing states a year only. |
 | `icmr_type2_diabetes_2018` | ICMR's listing states a year only. |
 | `icmr_hospital_infection_control_2017` | ICMR's listing states a year only. |
 

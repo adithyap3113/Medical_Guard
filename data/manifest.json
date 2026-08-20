@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-13T15:37:17.318376Z",
+  "generated_at": "2026-08-20T09:55:07.552196Z",
   "documents": [
     {
       "document_id": "cdc_anthrax_2023",
@@ -198,18 +198,18 @@
       "version_or_revision": "MMWR Recomm Rep 70(4)"
     },
     {
-      "document_id": "icmr_amr_treatment_2022",
-      "title": "Treatment Guidelines for Antimicrobial Use in Common Syndromes",
-      "source_url": "https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/treatment_amr_2022.pdf",
+      "document_id": "icmr_diagnosis_management_cros",
+      "title": "Guidance on Diagnosis & Management of Carbapenem Resistant Gram-negative Infections",
+      "source_url": "https://www.icmr.gov.in/icmrobject/custom_data/pdf/resource-guidelines/Diagnosis_and_management_of_CROs.pdf",
       "source_organization": "ICMR",
       "document_type": "guideline",
       "publication_date": null,
       "license_or_usage_note": "Material featured on this Website may be reproduced free of charge. However, the material has to be reproduced accurately and not to be used in a derogatory manner or in a misleading context. Wherever the material is being published or issued to others, the source must be prominently acknowledged. However, the permission to reproduce this material shall not extend to any material which is identified as being copyright of a third party. Authorization to reproduce such material must be obtained from the departments/copyright holders concerned. (https://www.icmr.gov.in/copyright-policy)",
-      "local_filename": "icmr_amr_treatment_2022.pdf",
-      "sha256": "00254202bc1b96caa87a26d69f3fe7ba1f8ca0c607467d87bce4b38df7f987e4",
-      "file_size_bytes": 434340,
+      "local_filename": "icmr_diagnosis_management_cros.pdf",
+      "sha256": "3e1569eed8d0989050c65608bca6aa02c107161542d414e6a864e9d19f4f589f",
+      "file_size_bytes": 1681576,
       "page_count": null,
-      "retrieved_at": "2026-08-13T15:37:17.273018Z",
+      "retrieved_at": "2026-08-20T09:55:07.545948Z",
       "version_or_revision": "2022"
     },
     {

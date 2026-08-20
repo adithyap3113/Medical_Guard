@@ -129,13 +129,13 @@ changing the corpus does not mean editing Python.
 
 ## Corpus
 
-20 documents, ~90 MB, across four publishers:
+20 documents, 59 MB, across four publishers — 19 active plus one retired document whose file is kept (`data/sources.yaml` carries 21 entries; the second retired one had its file deleted, and `data/raw/SOURCES.md` says why):
 
 | Publisher | Documents | Reuse terms |
 |---|---:|---|
 | CDC | 13 | Quoted verbatim (public domain) |
 | NIH (NHLBI) | 3 | **Not published by the source** — recorded as unstated |
-| ICMR | 3 | Quoted verbatim (free reuse with attribution) |
+| ICMR | 3 (+1 retired) | Quoted verbatim (free reuse with attribution) |
 | WHO | 1 (retired) | Not verifiable; source page now gated |
 
 Four publishers rather than one is a deliberate correction. A single-publisher corpus
@@ -305,7 +305,7 @@ Phase 14.
 | 1 | Foundation: config, logging, domain models, provider, CLI, API, diagnostics | **Done** |
 | 2 | Corpus acquisition, provenance manifest, database schema, migrations | **Done** — 14 documents, Qdrant persistence verified |
 | 3A | Corpus expansion, page-range schema, backfill, ingestion config | **Done** — 20 documents, 4 publishers |
-| 3B | Ingestion: PDF parsing, cleaning, chunking, embeddings, Qdrant indexing | **Done** — 20 documents, 2,058 pages, 5,158 chunks |
+| 3B | Ingestion: PDF parsing, cleaning, chunking, embeddings, Qdrant indexing | **Done** — 20 documents, 2,081 pages, 5,185 chunks |
 | 4 | Dense retrieval | Not started |
 | 5 | Baseline RAG | Not started |
 | 6–8 | Sparse retrieval, hybrid RRF fusion, cross-encoder reranking | Not started |
