@@ -24,6 +24,7 @@ __all__ = [
     "ConfigurationError",
     "CorpusError",
     "EmbeddingError",
+    "EvaluationError",
     "IngestionError",
     "IntegrityError",
     "ManifestError",
@@ -38,6 +39,7 @@ __all__ = [
     "ProviderResponseError",
     "ProviderTimeoutError",
     "ProviderUnavailableError",
+    "RetrievalError",
     "SourceUnavailableError",
     "VectorStoreError",
 ]
@@ -339,3 +341,26 @@ class EmbeddingError(IngestionError):
     """
 
     user_message = "The embedding model is unavailable."
+
+
+class RetrievalError(MedGuardError):
+    """The read path could not produce results.
+
+    Distinct from :class:`VectorStoreError`, which means Qdrant itself refused an
+    operation. This one covers the layer above: a query that cannot be embedded, or a
+    stored point whose payload is missing the fields a citation needs. Both are
+    recoverable-looking failures that must not be allowed to degrade into a result set
+    with holes in it, because a citation assembled from a partial payload is a
+    fabricated citation.
+    """
+
+
+class EvaluationError(MedGuardError):
+    """The evaluation harness cannot produce a trustworthy number.
+
+    Raised rather than warned deliberately. Every failure this covers -- a golden-set
+    file that does not parse, ground truth pointing at chunks that no longer exist,
+    chunk ids authored against different ingestion settings -- produces metrics that
+    look entirely normal and are quietly meaningless. A number nobody can trust is
+    worse than no number, so the harness stops instead of reporting one.
+    """

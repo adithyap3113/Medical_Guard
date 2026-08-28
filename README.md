@@ -306,24 +306,31 @@ Phase 14.
 | 2 | Corpus acquisition, provenance manifest, database schema, migrations | **Done** — 14 documents, Qdrant persistence verified |
 | 3A | Corpus expansion, page-range schema, backfill, ingestion config | **Done** — 20 documents, 4 publishers |
 | 3B | Ingestion: PDF parsing, cleaning, chunking, embeddings, Qdrant indexing | **Done** — 20 documents, 2,081 pages, 5,185 chunks |
-| 4 | Dense retrieval | Not started |
-| 5 | Baseline RAG | Not started |
-| 6–8 | Sparse retrieval, hybrid RRF fusion, cross-encoder reranking | Not started |
-| 9 | Query strategies: rewrite, HyDE, multi-query, decomposition | Not started |
-| 10–11 | Grounded generation, citations with validation | Not started |
-| 12–13 | Evaluation (100 questions, retrieval + RAGAS metrics), failure analysis | Not started |
-| 14–16 | Security, testing, deployment | Not started |
+| 4A | Retrieval evaluation harness, golden set, dense + sparse baselines | **Done** — 20-question worked example, dense and sparse measured |
+| 4B | Hybrid retrieval with RRF fusion, query rewriting, `POST /query`, Langfuse traces | Not started |
+| 5 | Cross-encoder reranking, HyDE, multi-query, decomposition | Not started |
+| 6 | Grounded generation, citation validation, RAGAS answer metrics, streaming | Not started |
+| 7 | User-facing interface | Not started |
+| 8+ | Security, deployment | Not started |
 
-**No performance or quality metrics are claimed anywhere in this repository.** None
-have been measured yet. Numbers will appear only after the Phase 12 evaluation
-harness produces them, and every claim will be reproducible from a recorded run.
+Phase 4A moved this project from claiming nothing to measuring something. Retrieval
+metrics now exist and live in `evals/reports/`, each run recorded with the commit,
+corpus hash, chunking settings and embedding model that produced it.
+
+Two things are still true and worth stating plainly. The golden set is a **20-question
+worked example that no human has reviewed yet**, so `medguard eval` marks every run over
+it provisional and refuses to score it without `--allow-unreviewed`; the numbers
+describe an instrument that has not been validated. And nothing here measures **answer**
+quality — retrieval metrics say which chunks come back, not whether an answer built from
+them would be right. That arrives in Phase 6. See `evals/README.md` for the methodology
+and its limitations.
 
 ---
 
 ## Development
 
 ```bash
-uv run pytest -m "not integration"   # 286 tests, no network access required
+uv run pytest -m "not integration"   # offline suite, no network access required
 uv run pytest -m integration         # needs Docker and a running Qdrant
 uv run ruff check .                  # lint
 uv run ruff format .                 # format

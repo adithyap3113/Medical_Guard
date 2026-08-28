@@ -75,3 +75,7 @@ qdrant_storage/
 postgres_data/
 redis_data/
 langfuse_data/
+
+# Parameter-sweep evaluation runs. Milestone reports under evals/reports/ are
+# committed deliberately; sweeps are not, or the repo becomes a metrics landfill.
+evals/reports/scratch/

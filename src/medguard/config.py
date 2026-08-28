@@ -43,6 +43,7 @@ __all__ = [
     "IngestionSettings",
     "LangfuseSettings",
     "QdrantSettings",
+    "RetrievalSettings",
     "Settings",
     "get_settings",
     "project_root",
@@ -410,6 +411,60 @@ class CorpusSettings(BaseSettings):
         return self
 
 
+class RetrievalSettings(BaseSettings):
+    """Read-path configuration (env prefix ``RETRIEVAL_``).
+
+    Every value here is a knob the evaluation harness sweeps, which is why they are
+    configuration rather than call-site defaults: an experiment that has to edit code
+    to change ``fetch_k`` is an experiment nobody runs a second time.
+
+    ``fetch_k`` is separate from ``top_k`` because they answer different questions.
+    ``top_k`` is how many results a caller wants; ``fetch_k`` is how deep each retrieval
+    leg reads before anything is truncated. Keeping them equal is the most common way to
+    get a weak hybrid: fusing two ten-item lists has almost nothing to fuse, and a chunk
+    ranked eleventh by both retrievers can never be recovered by any amount of
+    re-ranking downstream. Over-fetching is also what makes recall@50 measurable at all.
+    """
+
+    model_config = SettingsConfigDict(
+        **_BASE_CONFIG,
+        env_prefix="RETRIEVAL_",
+        env_file=_env_file(),
+    )
+
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Chunks returned to the caller. Capped because an unbounded value "
+        "turns one request into a full-collection scan.",
+    )
+    fetch_k: int = Field(
+        default=50,
+        ge=1,
+        le=200,
+        description="Depth read from each retrieval leg before truncation to top_k. "
+        "Must be >= top_k; see the class docstring for why they are not the same knob.",
+    )
+    default_retriever: Literal["dense", "sparse", "hybrid"] = Field(
+        default="dense",
+        description="Retriever used when a caller does not name one. Dense is the "
+        "Phase 4A default because it is the baseline every later number is compared "
+        "against. `hybrid` is accepted here but only implemented from Phase 4B.",
+    )
+
+    @model_validator(mode="after")
+    def _check_depth_ordering(self) -> RetrievalSettings:
+        if self.fetch_k < self.top_k:
+            msg = (
+                f"RETRIEVAL_FETCH_K ({self.fetch_k}) must be >= RETRIEVAL_TOP_K "
+                f"({self.top_k}); fetching less than is returned truncates results "
+                f"before the caller ever sees them"
+            )
+            raise ValueError(msg)
+        return self
+
+
 class AppSettings(BaseSettings):
     """Process-level settings that have no vendor prefix."""
 
@@ -463,6 +518,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     corpus: CorpusSettings = Field(default_factory=CorpusSettings)
+    retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
 
     @property
     def collection_name(self) -> str:

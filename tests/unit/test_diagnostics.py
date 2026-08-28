@@ -153,10 +153,10 @@ class TestUnimplementedCommands:
     @pytest.mark.parametrize(
         ("argv", "phase"),
         [
-            # `ingest` left this list in Phase 3B: it is implemented, and its own tests
-            # in tests/unit/test_ingest_cli.py cover it.
+            # `ingest` left this list in Phase 3B and `eval` in Phase 4A: both are
+            # implemented, and both have their own tests. `query` is the last stub --
+            # it needs answer synthesis, which is Phase 6.
             (["query", "what is hypertension?"], "Phases 5-11"),
-            (["eval"], "Phase 12"),
         ],
     )
     def test_stub_raises_not_implemented(self, argv: list[str], phase: str) -> None:
@@ -164,6 +164,13 @@ class TestUnimplementedCommands:
         assert result.exit_code != 0
         assert isinstance(result.exception, NotImplementedError)
         assert phase in str(result.exception)
+
+    def test_eval_is_no_longer_a_stub(self) -> None:
+        """Phase 4A replaced it. Invoked with a path that does not exist, so this
+        exercises the real command's error handling rather than a retrieval run."""
+        result = runner.invoke(app, ["eval", "--dataset", "does/not/exist.jsonl"])
+        assert result.exit_code == 1
+        assert not isinstance(result.exception, NotImplementedError)
 
     def test_commands_are_registered_with_real_signatures(self) -> None:
         result = runner.invoke(app, ["--help"])

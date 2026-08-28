@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "authored_at": "2026-08-20",
+  "chunk_id_scheme": "{document_id}::{chunk_index:04d} (position-addressed)",
+  "chunk_size": 1600,
+  "chunk_overlap": 200,
+  "chunk_min_chars": 200,
+  "chunk_max_chars": 2000,
+  "strip_running_headers": true,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "embedding_dimension": 384,
+  "corpus_manifest_sha256": "de05f3370bebb8c1422f39027550e4d4318f337a8d9076d29d60d0e50a5ccd28",
+  "notes": "Phase 4A worked example: 20 questions, all LLM-drafted and none yet human-reviewed. Ground truth was labelled from a pooled candidate list (dense top-30, BM25 top-30, SQL LIKE) against the 5,185-chunk corpus of 20 indexed documents. Chunk ids are position-addressed, so any change to the chunking fields above invalidates every id in the set."
+}

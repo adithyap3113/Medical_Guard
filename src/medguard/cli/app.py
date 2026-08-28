@@ -1,17 +1,16 @@
 """``medguard`` command-line entry point.
 
-``doctor``, ``serve``, ``corpus``, ``db`` and ``ingest`` are implemented. ``query`` and
-``eval`` are declared with their real signatures but raise ``NotImplementedError``.
+``doctor``, ``serve``, ``corpus``, ``db``, ``ingest`` and ``eval`` are implemented.
+``query`` is declared with its real signature but raises ``NotImplementedError``.
 
-That is deliberate. The alternative -- omitting them until their phase -- hides the
-shape of the system, while a stub that silently returns nothing is worse than one that
-fails loudly. These stubs state which phase implements them, so an accidental call
-produces an explanation rather than a confusing no-op.
+That is deliberate. The alternative -- omitting it until its phase -- hides the shape of
+the system, while a stub that silently returns nothing is worse than one that fails
+loudly. The stub states which phase implements it, so an accidental call produces an
+explanation rather than a confusing no-op.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -21,6 +20,7 @@ from medguard.cli.bootstrap import bootstrap as _bootstrap
 from medguard.cli.bootstrap import console, err_console
 from medguard.cli.corpus import corpus_app
 from medguard.cli.db import db_app
+from medguard.cli.eval import eval_
 from medguard.cli.ingest import ingest
 from medguard.config import get_settings
 from medguard.models import MEDICAL_DISCLAIMER, QueryStrategy
@@ -37,6 +37,10 @@ app = typer.Typer(
 
 app.add_typer(corpus_app)
 app.add_typer(db_app)
+
+# Registered as functions rather than decorated in place, so that the heavy imports
+# their bodies need stay out of `medguard --help`.
+app.command(name="eval")(eval_)
 
 
 def _version_callback(value: bool) -> None:
@@ -141,22 +145,6 @@ def query(
     )
     err_console.print(f"[dim]{MEDICAL_DISCLAIMER}[/]")
     raise NotImplementedError("Querying is implemented in Phases 5-11.")
-
-
-@app.command(name="eval")
-def eval_(
-    dataset: Annotated[Path, typer.Option(help="Evaluation dataset.")] = Path(
-        "data/eval/questions.jsonl"
-    ),
-    limit: Annotated[int | None, typer.Option(help="Evaluate only the first N questions.")] = None,
-) -> None:
-    """[dim]Phase 12[/] — Run retrieval and generation evaluation."""
-    _bootstrap()
-    err_console.print(
-        f"[yellow]Not implemented yet.[/] Evaluation lands in Phase 12 "
-        f"(dataset: {dataset}, limit: {limit})."
-    )
-    raise NotImplementedError("Evaluation is implemented in Phase 12.")
 
 
 if __name__ == "__main__":  # pragma: no cover
