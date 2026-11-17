@@ -80,6 +80,7 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> Iterator[None]:  
         monkeypatch.delenv(name, raising=False)
 
     # Point at throwaway infrastructure so nothing can reach a real service.
+    monkeypatch.setenv("MEDGUARD_ENV_FILE", "none")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
     monkeypatch.setenv("QDRANT_URL", ":memory:")
     monkeypatch.setenv("LANGFUSE_ENABLED", "false")

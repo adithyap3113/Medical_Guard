@@ -29,6 +29,7 @@ Design decisions worth defending
 from __future__ import annotations
 
 import functools
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -66,6 +67,9 @@ def project_root() -> Path:
 
 
 def _env_file() -> Path:
+    env_override = os.environ.get("MEDGUARD_ENV_FILE")
+    if env_override:
+        return Path(env_override)
     return project_root() / ".env"
 
 
@@ -78,7 +82,20 @@ _BASE_CONFIG = SettingsConfigDict(
 )
 
 
-class GeminiSettings(BaseSettings):
+class MedGuardBaseSettings(BaseSettings):
+    """Base settings class that respects MEDGUARD_ENV_FILE overrides."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        if "_env_file" not in kwargs:
+            override = os.environ.get("MEDGUARD_ENV_FILE")
+            if override == "none":
+                kwargs["_env_file"] = None
+            elif override:
+                kwargs["_env_file"] = Path(override)
+        super().__init__(*args, **kwargs)
+
+
+class GeminiSettings(MedGuardBaseSettings):
     """Gemini generation provider configuration (env prefix ``GEMINI_``)."""
 
     model_config = SettingsConfigDict(
@@ -135,7 +152,7 @@ class GeminiSettings(BaseSettings):
         return self
 
 
-class QdrantSettings(BaseSettings):
+class QdrantSettings(MedGuardBaseSettings):
     """Vector database configuration (env prefix ``QDRANT_``)."""
 
     model_config = SettingsConfigDict(
@@ -161,7 +178,7 @@ class QdrantSettings(BaseSettings):
     )
 
 
-class LangfuseSettings(BaseSettings):
+class LangfuseSettings(MedGuardBaseSettings):
     """Observability configuration (env prefix ``LANGFUSE_``).
 
     Note: Langfuse SDK v3+ renamed ``LANGFUSE_HOST`` to ``LANGFUSE_BASE_URL``. Both are
@@ -193,7 +210,7 @@ class LangfuseSettings(BaseSettings):
         return bool(self.enabled and self.public_key and self.secret_key)
 
 
-class EmbeddingSettings(BaseSettings):
+class EmbeddingSettings(MedGuardBaseSettings):
     """Embedding configuration (env prefix ``EMBEDDING_``).
 
     Declared in Phase 1 but not yet *used*: no model is loaded or downloaded until
@@ -236,7 +253,7 @@ class EmbeddingSettings(BaseSettings):
     )
 
 
-class IngestionSettings(BaseSettings):
+class IngestionSettings(MedGuardBaseSettings):
     """Parse-and-chunk configuration (env prefix ``INGESTION_``).
 
     Declared in Phase 3A, used by the ingestion pipeline from Phase 3B. They live here
@@ -337,7 +354,7 @@ class IngestionSettings(BaseSettings):
         return self
 
 
-class CorpusSettings(BaseSettings):
+class CorpusSettings(MedGuardBaseSettings):
     """Source-document corpus configuration (env prefix ``CORPUS_``).
 
     Paths are resolved against the project root when relative, so ``medguard corpus
@@ -411,7 +428,7 @@ class CorpusSettings(BaseSettings):
         return self
 
 
-class RetrievalSettings(BaseSettings):
+class RetrievalSettings(MedGuardBaseSettings):
     """Read-path configuration (env prefix ``RETRIEVAL_``).
 
     Every value here is a knob the evaluation harness sweeps, which is why they are
@@ -471,7 +488,7 @@ class RetrievalSettings(BaseSettings):
         return self
 
 
-class AppSettings(BaseSettings):
+class AppSettings(MedGuardBaseSettings):
     """Process-level settings that have no vendor prefix."""
 
     model_config = SettingsConfigDict(
@@ -509,7 +526,7 @@ class AppSettings(BaseSettings):
         return v
 
 
-class Settings(BaseSettings):
+class Settings(MedGuardBaseSettings):
     """The single composed configuration object for the whole application."""
 
     model_config = SettingsConfigDict(
