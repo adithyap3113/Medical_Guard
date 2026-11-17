@@ -32,12 +32,18 @@ against values worked out by hand.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable, Sequence
 
 from medguard.errors import EvaluationError
 
 __all__ = [
+    "abstention_accuracy",
+    "answer_similarity_score",
+    "citation_correctness",
     "dcg",
+    "faithfulness_score",
+    "hit_rate_at_k",
     "mean_ignoring_undefined",
     "mrr",
     "ndcg_at_k",
@@ -78,6 +84,14 @@ def recall_at_k(retrieved: Sequence[str], relevant: set[str], k: int) -> float:
         return math.nan
     hits = sum(1 for cid in retrieved[:k] if cid in relevant)
     return hits / len(relevant)
+
+
+def hit_rate_at_k(retrieved: Sequence[str], relevant: set[str], k: int) -> float:
+    """Binary indicator: 1.0 if at least one relevant chunk is retrieved within top ``k``, else 0.0."""
+    _validate(retrieved, k)
+    if not relevant:
+        return math.nan
+    return 1.0 if any(cid in relevant for cid in retrieved[:k]) else 0.0
 
 
 def reciprocal_rank_position(retrieved: Sequence[str], relevant: set[str]) -> int | None:
@@ -146,3 +160,56 @@ def mean_ignoring_undefined(values: Iterable[float]) -> tuple[float, int]:
     if not defined:
         return math.nan, skipped
     return sum(defined) / len(defined), skipped
+
+
+def citation_correctness(citations: Sequence[object]) -> float:
+    """Fraction of emitted citations verified as supported against source documents.
+
+    Returns 1.0 if no citations were needed/emitted, or the proportion of citations
+    where ``supported is True``.
+    """
+    if not citations:
+        return 1.0
+    supported_count = sum(1 for c in citations if getattr(c, "supported", False) is True)
+    return supported_count / len(citations)
+
+
+def faithfulness_score(answer_text: str, context_text: str) -> float:
+    """Lexical token overlap heuristic between answer assertions and retrieved grounding context.
+
+    Evaluates groundedness locally without requiring an external LLM-as-a-judge API.
+    Computes content-word containment (excluding short stopwords).
+    """
+    if not answer_text.strip():
+        return 0.0
+    words = [w.lower() for w in re.findall(r"\b[A-Za-z0-9_\-\.]{3,}\b", answer_text)]
+    if not words:
+        return 0.0
+    context_lower = context_text.lower()
+    found = sum(1 for w in words if w in context_lower)
+    return found / len(words)
+
+
+def abstention_accuracy(is_unanswerable: bool, abstained: bool) -> float:
+    """Binary score indicating whether the system abstained correctly.
+
+    Returns 1.0 if the system abstained when the question was unanswerable,
+    or answered when the question was answerable; otherwise 0.0.
+    """
+    return 1.0 if is_unanswerable == abstained else 0.0
+
+
+def answer_similarity_score(answer: str, reference_answer: str | None) -> float:
+    """Heuristic token overlap against reference answer if available.
+
+    Returns math.nan when reference_answer is missing or empty, ensuring missing
+    ground truth never fabricates a false 0.0 or 1.0 score.
+    Note: Semantic entailment / ROUGE / LLM-as-a-judge evaluation is not yet implemented.
+    """
+    if reference_answer is None or not reference_answer.strip():
+        return math.nan
+    ans_words = set(re.findall(r"\b\w{3,}\b", answer.lower()))
+    ref_words = set(re.findall(r"\b\w{3,}\b", reference_answer.lower()))
+    if not ref_words:
+        return math.nan
+    return len(ans_words & ref_words) / len(ref_words)

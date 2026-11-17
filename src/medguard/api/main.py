@@ -16,21 +16,33 @@ What is wired now, and why it belongs at the foundation rather than bolted on la
 
 from __future__ import annotations
 
+import urllib.parse
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import SecretStr
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from medguard import __version__
 from medguard.api.routes import health as health_routes
+from medguard.api.routes import query as query_routes
 from medguard.api.schemas import ErrorResponse
 from medguard.config import Settings, get_settings
-from medguard.errors import MedGuardError, ProviderError
+from medguard.errors import (
+    CollectionNotFoundError,
+    MedGuardError,
+    ProviderError,
+    VectorStoreTimeoutError,
+    VectorStoreUnavailableError,
+)
 from medguard.logging import configure_logging, get_logger
 from medguard.models import MEDICAL_DISCLAIMER
 from medguard.observability.tracing import get_tracer
+from medguard.storage.vector_store import VectorStore
 
 __all__ = ["create_app"]
 
@@ -50,18 +62,28 @@ has not been clinically validated, and is not a medical device.
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
+    secrets: list[str | SecretStr | None] = [
+        settings.gemini.api_key,
+        settings.qdrant.api_key,
+        settings.langfuse.public_key,
+        settings.langfuse.secret_key,
+    ]
+    if settings.app.database_url:
+        parsed_db = urllib.parse.urlparse(settings.app.database_url)
+        if parsed_db.password:
+            secrets.append(parsed_db.password)
     configure_logging(
         level=settings.app.log_level,
         fmt=settings.app.log_format,
-        secrets=[
-            settings.gemini.api_key,
-            settings.qdrant.api_key,
-            settings.langfuse.public_key,
-            settings.langfuse.secret_key,
-        ],
+        secrets=secrets,
     )
     tracer = get_tracer()
     app.state.tracer = tracer
+
+    # Shared application-scoped vector store resource
+    if not hasattr(app.state, "vector_store") or app.state.vector_store is None:
+        app.state.vector_store = VectorStore(settings)
+
     log.info(
         "api.startup",
         version=__version__,
@@ -72,6 +94,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # Close shared vector store resources cleanly
+        if hasattr(app.state, "vector_store") and app.state.vector_store is not None:
+            try:
+                app.state.vector_store.close()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("api.vector_store_close_error", error=str(exc))
         # Short-lived processes lose buffered traces without an explicit flush.
         tracer.flush()
         tracer.shutdown()
@@ -108,7 +136,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             path=request.url.path,
             trace_id=correlation_id,
         )
-        status_code = 503 if isinstance(exc, ProviderError) else 500
+        if isinstance(
+            exc,
+            (
+                ProviderError,
+                VectorStoreUnavailableError,
+                VectorStoreTimeoutError,
+                CollectionNotFoundError,
+            ),
+        ):
+            status_code = 503
+        else:
+            status_code = 500
         return JSONResponse(
             status_code=status_code,
             content=ErrorResponse(
@@ -118,5 +157,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).model_dump(mode="json"),
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def _handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        correlation_id = str(uuid.uuid4())
+        log.warning(
+            "api.validation_error",
+            path=request.url.path,
+            errors=str(exc.errors()),
+            trace_id=correlation_id,
+        )
+        messages: list[str] = []
+        for err in exc.errors():
+            loc = " -> ".join(str(el) for el in err.get("loc", []) if el != "body")
+            msg = err.get("msg", "Invalid value")
+            messages.append(f"{loc}: {msg}" if loc else msg)
+        safe_message = "; ".join(messages) or "Invalid request parameters."
+        return JSONResponse(
+            status_code=422,
+            content=ErrorResponse(
+                error="ValidationError",
+                message=safe_message,
+                trace_id=correlation_id,
+            ).model_dump(mode="json"),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        correlation_id = str(uuid.uuid4())
+        log.warning(
+            "api.http_error",
+            status_code=exc.status_code,
+            detail=str(exc.detail),
+            path=request.url.path,
+            trace_id=correlation_id,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=ErrorResponse(
+                error="HTTPError",
+                message=str(exc.detail),
+                trace_id=correlation_id,
+            ).model_dump(mode="json"),
+        )
+
     app.include_router(health_routes.router)
+    app.include_router(query_routes.router)
     return app

@@ -452,6 +452,12 @@ class RetrievalSettings(BaseSettings):
         "Phase 4A default because it is the baseline every later number is compared "
         "against. `hybrid` is accepted here but only implemented from Phase 4B.",
     )
+    rrf_k: int = Field(
+        default=60,
+        ge=1,
+        le=500,
+        description="Reciprocal Rank Fusion smoothing parameter. Standard default is 60.",
+    )
 
     @model_validator(mode="after")
     def _check_depth_ordering(self) -> RetrievalSettings:

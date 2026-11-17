@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from medguard.errors import EvaluationError
 from medguard.evaluation.golden_set import GoldenQuestion
 from medguard.evaluation.metrics import (
+    hit_rate_at_k,
     mean_ignoring_undefined,
     mrr,
     ndcg_at_k,
@@ -131,6 +132,7 @@ class MetricsReport(BaseModel):
     unscored_question_ids: list[str]
     precision_at_k: dict[str, float]
     recall_at_k: dict[str, float]
+    hit_rate_at_k: dict[str, float] = Field(default_factory=dict)
     ndcg_at_k: dict[str, float]
     mrr: float
     latency: LatencySummary
@@ -227,6 +229,7 @@ def compute_metrics(
 
     precision = {str(k): aggregate(precision_at_k, k) for k in K_VALUES}
     recall = {str(k): aggregate(recall_at_k, k) for k in _RECALL_K_VALUES}
+    hit_rate = {str(k): aggregate(hit_rate_at_k, k) for k in K_VALUES}
     ndcg = {str(k): aggregate(ndcg_at_k, k) for k in K_VALUES}
     mean_mrr, _ = mean_ignoring_undefined(
         [mrr(run.retrieved_chunk_ids, set(q.relevant_chunk_ids)) for run, q in scored]
@@ -285,6 +288,7 @@ def compute_metrics(
         unscored_question_ids=unscored,
         precision_at_k=precision,
         recall_at_k=recall,
+        hit_rate_at_k=hit_rate,
         ndcg_at_k=ndcg,
         mrr=mean_mrr,
         latency=latency,

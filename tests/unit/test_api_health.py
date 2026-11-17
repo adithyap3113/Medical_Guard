@@ -150,10 +150,10 @@ class TestApiContract:
         assert "not been clinically validated" in description
         assert "not a medical device" in description
 
-    def test_no_query_endpoint_exists_yet(self, client: TestClient) -> None:
-        """Phase 1 must not expose an endpoint that cannot answer anything."""
+    def test_query_endpoint_is_exposed(self, client: TestClient) -> None:
+        """The API contract exposes the health, ready, and query endpoints."""
         paths = client.get("/openapi.json").json()["paths"]
-        assert set(paths) == {"/health", "/ready"}
+        assert {"/health", "/ready", "/api/v1/query"} <= set(paths)
 
 
 class TestErrorEnvelope:
@@ -178,3 +178,21 @@ class TestErrorEnvelope:
         assert body["message"] == ProviderAuthError.user_message
         assert body["trace_id"]
         assert body["disclaimer"] == MEDICAL_DISCLAIMER
+
+
+class TestAppLifespanAndSharedResources:
+    def test_lifespan_manages_shared_vector_store(self, settings) -> None:  # type: ignore[no-untyped-def]
+        from medguard.api.main import create_app
+        from medguard.storage.vector_store import VectorStore
+
+        app = create_app(settings)
+        with TestClient(app) as c:
+            assert hasattr(app.state, "vector_store")
+            vs = app.state.vector_store
+            assert isinstance(vs, VectorStore)
+            # Make sure health endpoint works during lifespan
+            resp = c.get("/health")
+            assert resp.status_code == 200
+
+        # After lifespan exits, vector store is closed
+        assert vs._client is None

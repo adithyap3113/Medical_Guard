@@ -12,12 +12,22 @@ are properties of the plumbing between the embedder, the store and the Candidate
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 from qdrant_client import models
 
 from medguard.config import RetrievalSettings, Settings
 from medguard.embeddings.base import DenseEmbedder, SparseEmbedder, SparseVector
-from medguard.errors import RetrievalError, VectorStoreError
+from medguard.errors import (
+    CollectionMismatchError,
+    CollectionNotFoundError,
+    RetrievalError,
+    VectorStoreAuthError,
+    VectorStoreError,
+    VectorStoreTimeoutError,
+    VectorStoreUnavailableError,
+)
 from medguard.models import Candidate, DocumentType, RetrieverKind, SourceOrganization
 from medguard.retrieval.base import RetrievalFilter, Retriever, candidate_from_point
 from medguard.retrieval.dense import DenseRetriever
@@ -360,17 +370,71 @@ class TestRetrieverFactory:
 
         assert get_retriever("sparse").kind is RetrieverKind.SPARSE
 
-    def test_hybrid_says_which_phase_implements_it(self, settings: Settings) -> None:
-        """A stub that returns something plausible would be far worse than one that
-        refuses: hybrid results that are silently dense-only would be measured, reported
-        and believed."""
-        from medguard.retrieval import get_retriever
+    def test_hybrid_returns_hybrid_retriever(self, settings: Settings) -> None:
+        from medguard.retrieval import HybridRetriever, get_retriever
 
-        with pytest.raises(NotImplementedError, match="Phase 4B"):
-            get_retriever("hybrid")
+        retriever = get_retriever("hybrid")
+        assert isinstance(retriever, HybridRetriever)
+        assert retriever.kind is RetrieverKind.HYBRID
 
     def test_an_unknown_name_lists_the_valid_ones(self, settings: Settings) -> None:
         from medguard.retrieval import get_retriever
 
         with pytest.raises(ValueError, match="dense"):
             get_retriever("bm42")
+
+
+class TestVectorStoreLifecycleAndErrors:
+    def test_qdrant_unavailable_raises_unavailable_error(self, settings: Settings) -> None:
+        store = VectorStore(settings)
+        store._client = MagicMock()
+        store._client.query_points.side_effect = Exception("Connection refused: [WinError 10061]")
+
+        with pytest.raises(VectorStoreUnavailableError):
+            store.search_dense([0.1] * DIMENSION, limit=5)
+
+    def test_missing_collection_raises_collection_not_found_error(self, settings: Settings) -> None:
+        store = VectorStore(settings)
+        store._client = MagicMock()
+        store._client.query_points.side_effect = Exception("Collection 'medguard' doesn't exist")
+
+        with pytest.raises(CollectionNotFoundError):
+            store.search_dense([0.1] * DIMENSION, limit=5)
+
+    def test_collection_schema_mismatch_raises_mismatch_error(self, settings: Settings) -> None:
+        store = VectorStore(settings)
+        with pytest.raises(CollectionMismatchError, match="dimensions"):
+            store.search_dense([0.1] * 128, limit=5)
+
+    def test_authentication_failure_raises_auth_error(self, settings: Settings) -> None:
+        store = VectorStore(settings)
+        store._client = MagicMock()
+        store._client.query_points.side_effect = Exception("Unauthorized: Invalid API key")
+
+        with pytest.raises(VectorStoreAuthError):
+            store.search_dense([0.1] * DIMENSION, limit=5)
+
+    def test_timeout_raises_timeout_error(self, settings: Settings) -> None:
+        store = VectorStore(settings)
+        store._client = MagicMock()
+        store._client.query_points.side_effect = Exception("Operation timed out after 30s")
+
+        with pytest.raises(VectorStoreTimeoutError):
+            store.search_dense([0.1] * DIMENSION, limit=5)
+
+    def test_validate_collection_missing_raises(self, settings: Settings) -> None:
+        store = VectorStore(settings)
+        store._client = MagicMock()
+        store._client.collection_exists.return_value = False
+
+        with pytest.raises(CollectionNotFoundError):
+            store.validate_collection()
+
+    def test_store_close_cleans_up_client(self, settings: Settings) -> None:
+        store = VectorStore(settings)
+        mock_client = MagicMock()
+        store._client = mock_client
+
+        store.close()
+        mock_client.close.assert_called_once()
+        assert getattr(store, "_client") is None  # noqa: B009

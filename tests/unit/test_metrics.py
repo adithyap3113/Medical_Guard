@@ -15,7 +15,12 @@ import pytest
 
 from medguard.errors import EvaluationError
 from medguard.evaluation.metrics import (
+    abstention_accuracy,
+    answer_similarity_score,
+    citation_correctness,
     dcg,
+    faithfulness_score,
+    hit_rate_at_k,
     mean_ignoring_undefined,
     mrr,
     ndcg_at_k,
@@ -150,4 +155,45 @@ class TestInputValidation:
     def test_an_empty_ranked_list_scores_zero(self) -> None:
         assert precision_at_k([], RELEVANT, 5) == 0.0
         assert recall_at_k([], RELEVANT, 5) == 0.0
+
+
+class TestAdditionalMetrics:
+    def test_hit_rate_at_k(self) -> None:
+        assert hit_rate_at_k(RANKED, RELEVANT, 1) == 0.0
+        assert hit_rate_at_k(RANKED, RELEVANT, 2) == 1.0
+        assert hit_rate_at_k(RANKED, RELEVANT, 5) == 1.0
+        assert math.isnan(hit_rate_at_k(RANKED, set(), 5))
+
+    def test_citation_correctness(self) -> None:
+        from unittest.mock import Mock
+
+        c1 = Mock(supported=True)
+        c2 = Mock(supported=False)
+        assert citation_correctness([]) == 1.0
+        assert citation_correctness([c1, c1]) == 1.0
+        assert citation_correctness([c1, c2]) == 0.5
+        assert citation_correctness([c2, c2]) == 0.0
+
+    def test_faithfulness_score(self) -> None:
+        context = "Hypertension is defined as systolic blood pressure of 140 mmHg or greater."
+        good_answer = "Hypertension is systolic blood pressure of 140 mmHg."
+        bad_answer = "Diabetes mellitus requires insulin therapy."
+
+        assert faithfulness_score(good_answer, context) > 0.8
+        assert faithfulness_score(bad_answer, context) < 0.3
+        assert faithfulness_score("", context) == 0.0
+
         assert mrr([], RELEVANT) == 0.0
+
+    def test_abstention_accuracy(self) -> None:
+        assert abstention_accuracy(is_unanswerable=True, abstained=True) == 1.0
+        assert abstention_accuracy(is_unanswerable=False, abstained=False) == 1.0
+        assert abstention_accuracy(is_unanswerable=True, abstained=False) == 0.0
+        assert abstention_accuracy(is_unanswerable=False, abstained=True) == 0.0
+
+    def test_answer_similarity_score_handles_missing_reference(self) -> None:
+        assert math.isnan(answer_similarity_score("Some answer", None))
+        assert math.isnan(answer_similarity_score("Some answer", "   "))
+        assert (
+            answer_similarity_score("blood pressure guidelines", "blood pressure guidelines") == 1.0
+        )

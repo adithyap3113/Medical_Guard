@@ -306,6 +306,10 @@ class Citation(BaseModel):
         default=None,
         description="Validation verdict. None means not yet validated -- not 'valid'.",
     )
+    validation_status: str | None = Field(
+        default=None,
+        description="Validation classification: 'quote_verified', 'source_valid', or 'unsupported'.",
+    )
     validation_note: str | None = None
 
 

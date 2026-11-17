@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 __all__ = ["eval_"]
 
-_RETRIEVERS = ("dense", "sparse")
+_RETRIEVERS = ("dense", "sparse", "hybrid")
 
 
 def eval_(
@@ -35,8 +35,8 @@ def eval_(
         "evals/golden_set_v1.jsonl"
     ),
     retriever: Annotated[
-        str, typer.Option(help="Comma-separated: dense, sparse, or both.")
-    ] = "dense,sparse",
+        str, typer.Option(help="Comma-separated: dense, sparse, hybrid, or combinations.")
+    ] = "dense,sparse,hybrid",
     limit: Annotated[int | None, typer.Option(help="Evaluate only the first N questions.")] = None,
     depth: Annotated[int, typer.Option(min=1, max=200, help="Retrieval depth per query.")] = 50,
     allow_unreviewed: Annotated[
@@ -93,8 +93,7 @@ def eval_(
     unknown = [k for k in kinds if k not in _RETRIEVERS]
     if unknown:
         err_console.print(
-            f"[red]Unknown retriever(s) {unknown}.[/] Phase 4A implements "
-            f"{list(_RETRIEVERS)}; hybrid fusion lands in Phase 4B."
+            f"[red]Unknown retriever(s) {unknown}.[/] Supported retrievers: {list(_RETRIEVERS)}."
         )
         raise typer.Exit(1)
 

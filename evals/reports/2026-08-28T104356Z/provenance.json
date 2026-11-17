@@ -1,0 +1,54 @@
+{
+  "collection": "medguard__bge_small_en_v1_5__384",
+  "corpus_manifest_sha256": "de05f3370bebb8c1422f39027550e4d4318f337a8d9076d29d60d0e50a5ccd28",
+  "embedding_dimension": 384,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "gemini_called": false,
+  "generated_at": "2026-08-28T10:43:56.915964+00:00",
+  "git_branch": "main",
+  "git_commit": "084b5b2e566c3c75ed714685d8d821f68adbb8c9",
+  "git_dirty": false,
+  "golden_set": {
+    "authored_at": "2026-08-20",
+    "pending_review": [
+      "gq_001",
+      "gq_002",
+      "gq_003",
+      "gq_004",
+      "gq_005",
+      "gq_006",
+      "gq_007",
+      "gq_008",
+      "gq_009",
+      "gq_010",
+      "gq_011",
+      "gq_012",
+      "gq_013",
+      "gq_014",
+      "gq_015",
+      "gq_016",
+      "gq_017",
+      "gq_018",
+      "gq_019",
+      "gq_020"
+    ],
+    "questions": 20,
+    "reviewed": false,
+    "scored": 14,
+    "version": "v1"
+  },
+  "ingestion": {
+    "chunk_max_chars": 2000,
+    "chunk_min_chars": 200,
+    "chunk_overlap": 200,
+    "chunk_size": 1600,
+    "strip_running_headers": true
+  },
+  "phase": "4A",
+  "retrieval": {
+    "default_retriever": "dense",
+    "fetch_k": 50,
+    "top_k": 5
+  },
+  "sparse_model": "Qdrant/bm25"
+}

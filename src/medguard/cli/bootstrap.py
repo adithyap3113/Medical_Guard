@@ -102,17 +102,27 @@ def bootstrap() -> None:
     the log redactor here means the very first log line is already protected -- there
     is no window in which a secret could be printed.
     """
+    import urllib.parse
+
+    from pydantic import SecretStr
+
     from medguard.config import get_settings
     from medguard.logging import configure_logging
 
     settings = get_settings()
+    secrets: list[str | SecretStr | None] = [
+        settings.gemini.api_key,
+        settings.qdrant.api_key,
+        settings.langfuse.public_key,
+        settings.langfuse.secret_key,
+    ]
+    if settings.app.database_url:
+        parsed_db = urllib.parse.urlparse(settings.app.database_url)
+        if parsed_db.password:
+            secrets.append(parsed_db.password)
+
     configure_logging(
         level=settings.app.log_level,
         fmt=settings.app.log_format,
-        secrets=[
-            settings.gemini.api_key,
-            settings.qdrant.api_key,
-            settings.langfuse.public_key,
-            settings.langfuse.secret_key,
-        ],
+        secrets=secrets,
     )

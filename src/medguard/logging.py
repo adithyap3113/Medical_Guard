@@ -163,6 +163,23 @@ def _shared_processors() -> list[Any]:
     ]
 
 
+class _DynamicStreamHandler(logging.StreamHandler[Any]):
+    """Stream handler that always writes to the current ``sys.stderr``.
+
+    Binding a concrete stream at configuration time causes ``ValueError: I/O operation
+    on closed file`` whenever a test runner (pytest capture) or CLI runner (Click
+    CliRunner) temporarily replaces and then closes standard error.
+    """
+
+    @property
+    def stream(self) -> Any:
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value: Any) -> None:
+        pass
+
+
 def configure_logging(
     *,
     level: str = "INFO",
@@ -202,7 +219,7 @@ def configure_logging(
         ],
     )
 
-    handler = logging.StreamHandler(sys.stderr)
+    handler = _DynamicStreamHandler()
     handler.setFormatter(formatter)
 
     root = logging.getLogger()

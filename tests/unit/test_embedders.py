@@ -184,10 +184,14 @@ class TestTruncationWarning:
         contraindication is not in the index at all and no query can retrieve it. The
         only way anyone finds out is if the ingestion log says so.
         """
+        import medguard.embeddings.fastembed_dense as fed
+        from medguard.logging import get_logger
+
         embedder = FastEmbedDense()
         _loaded(embedder, StubModel())
 
         with capture_logs() as events:
+            fed.log = get_logger("medguard.embeddings.fastembed_dense")
             embedder.embed_documents(["x" * (MAX_TOKENS * 10)])
 
         warnings = [e for e in events if e.get("event") == "embeddings.dense.likely_truncated"]
@@ -197,16 +201,23 @@ class TestTruncationWarning:
 
     def test_a_normal_passage_is_not_reported(self) -> None:
         """A warning on every chunk is a warning nobody reads."""
+        import medguard.embeddings.fastembed_dense as fed
+        from medguard.logging import get_logger
+
         embedder = FastEmbedDense()
         _loaded(embedder, StubModel())
 
         with capture_logs() as events:
+            fed.log = get_logger("medguard.embeddings.fastembed_dense")
             embedder.embed_documents(["a normal-length clinical passage."])
 
         assert not [e for e in events if e.get("event") == "embeddings.dense.likely_truncated"]
 
     def test_the_warning_does_not_stop_the_embedding(self) -> None:
         """It is a quality signal, not a failure: the truncated vector is still useful."""
+        import structlog
+
+        structlog.reset_defaults()
         embedder = FastEmbedDense()
         _loaded(embedder, StubModel())
 

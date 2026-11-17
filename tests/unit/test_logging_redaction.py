@@ -197,6 +197,25 @@ class TestEndToEndLogging:
         assert parsed["chunk_count"] == 7
         assert parsed["level"] == "info"
 
+    def test_database_password_in_exception_is_redacted(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        raw_password = "superSecretDbPassword987!"
+        register_secrets([raw_password])
+        configure_logging(level="DEBUG", fmt="console", secrets=[raw_password])
+        log = get_logger("test.db")
+
+        try:
+            raise ConnectionError(
+                f"Failed to connect to postgresql://medguard:{raw_password}@db.internal:5432/medguard"
+            )
+        except ConnectionError:
+            log.exception("db.connect_failed")
+
+        captured = capsys.readouterr().err
+        assert raw_password not in captured
+        assert REDACTED in captured
+
 
 @pytest.fixture(autouse=True)
 def _reset_structlog() -> None:

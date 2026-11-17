@@ -10,10 +10,10 @@ documents.
 > a substitute for consultation with a qualified healthcare professional. Always
 > verify against the cited sources.
 
-**Status: Phase 2 of 16 complete** — foundation, corpus and schema. There is a corpus of
-13 clinical guideline PDFs with recorded provenance, and a versioned database schema.
-There is still no parsing, chunking, embedding, retrieval, or generation. See
-[Roadmap](#roadmap) for what exists and what does not.
+**Status: Core RAG Pipeline Operational** — Ingestion, Hybrid Retrieval (RRF), Query
+Strategies, Gemini Grounded Generation, Strict Citation Validation, FastAPI Question-Answering
+endpoint (`POST /api/v1/query`), and Typer CLI (`medguard query`) are fully implemented and verified.
+See [Architecture](#architecture) and [Roadmap](#roadmap) for complete details.
 
 ---
 
@@ -37,10 +37,14 @@ uv run medguard corpus download
 uv run medguard corpus verify
 
 # 6. Verify the environment
-uv run medguard doctor
+uv run medguard doctor --no-smoke-test
 
-# 7. Serve the API
+# 7. Ask a medical question via CLI
+uv run medguard query "What are the recommended guidelines for hypertension?" --retriever hybrid --strategy basic
+
+# 8. Serve the API
 uv run medguard serve       # http://127.0.0.1:8000/docs
+# Endpoint: POST http://127.0.0.1:8000/api/v1/query
 ```
 
 `medguard doctor` is the acceptance test. It reports Python, CPU, RAM, GPU, Docker,
@@ -297,21 +301,175 @@ Phase 14.
 
 ---
 
+---
+
+## Architecture
+
+MedGuard is engineered as a secure, CPU-efficient, evidence-grounded medical RAG pipeline:
+
+```
+                      CLINICAL PDF DOCUMENTS
+                                |
+                                v
+               PyMuPDF Page-by-Page Extraction
+                                |
+                                v
+                Medical Text Cleaner & Normalizer
+                                |
+                                v
+             Deterministic Position-Addressed Chunker
+               (Tracks page_start, page_end, section)
+                                |
+             +------------------+------------------+
+             |                                     |
+             v                                     v
+   Dense Embedding (384d)                 Sparse Embedding
+  (FastEmbed bge-small-en-v1.5)            (FastEmbed BM25)
+             |                                     |
+             +------------------+------------------+
+                                |
+                                v
+                 Qdrant Vector Database Storage
+            (Named vectors 'dense' & 'sparse' + payload)
+                                |
+ =====================================================================
+                        QUERY WORKFLOW
+ =====================================================================
+                         USER QUESTION
+                                |
+                                v
+                  Query Processing Strategies
+        (basic, rewrite, multi_query, decomposition, hyde)
+                                |
+             +------------------+------------------+
+             |                                     |
+             v                                     v
+     Dense Qdrant Search                  Sparse Qdrant Search
+             |                                     |
+             +------------------+------------------+
+                                |
+                                v
+               Reciprocal Rank Fusion (RRF k=60)
+                                |
+                                v
+               Top-K Evidence Candidates Filtering
+                                |
+                                v
+          Delimited Grounding Context Construction
+            (<CLINICAL_SOURCE_EVIDENCE> + Sanitization)
+                                |
+                                v
+           Gemini Grounded Answer Generation
+       (Strict adherence to context, abstention logic,
+             preservation of dosages & terminology)
+                                |
+                                v
+                   Citation Validation Engine
+         (Verifies chunk IDs, document IDs, page bounds)
+                                |
+                                v
+        Final Answer + Citations + Medical Disclaimer
+                     (CLI or REST API)
+```
+
+---
+
+## Querying MedGuard
+
+### CLI (`medguard query`)
+
+```bash
+# Basic query using hybrid retrieval
+uv run medguard query "What are the recommended guidelines for hypertension?"
+
+# Use query rewriting strategy
+uv run medguard query "first line drugs high bp" --strategy rewrite
+
+# Filter by publisher and format output as JSON
+uv run medguard query "latent TB 3HP regimen" --source-org CDC --json
+```
+
+Options:
+- `-k, --top-k INT`: Number of evidence chunks to retrieve (default: 5)
+- `-r, --retriever [hybrid|dense|sparse]`: Retrieval leg (default: `hybrid`)
+- `-s, --strategy [basic|rewrite|multi_query|decomposition|hyde]`: Query strategy (default: `basic`)
+- `--source-org TEXT`: Filter by source organization (e.g. `CDC`, `WHO`, `ICMR`, `NHLBI`)
+- `--doc-type TEXT`: Filter by document type (e.g. `guideline`, `reference`)
+- `--json`: Output machine-readable JSON envelope
+
+### REST API (`POST /api/v1/query`)
+
+**Bash / curl:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is the recommended once-weekly regimen for latent TB infection?",
+    "top_k": 3,
+    "strategy": "basic",
+    "retriever": "hybrid"
+  }'
+```
+
+**PowerShell (`Invoke-RestMethod`):**
+```powershell
+$body = @{
+    question = "What is the recommended once-weekly regimen for latent TB infection?"
+    top_k = 3
+    strategy = "basic"
+    retriever = "hybrid"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/query" -Method Post -ContentType "application/json" -Body $body
+```
+
+Response structure:
+```json
+{
+  "answer": "According to the CDC guidelines, the recommended once-weekly regimen for latent TB infection is 3 months of once-weekly isoniazid plus rifapentine (3HP) [1].",
+  "citations": [
+    {
+      "chunk_id": "cdc_latent_tb_treatment_2020::0004",
+      "document_id": "cdc_latent_tb_treatment_2020",
+      "source_title": "Guidelines for the Treatment of Latent Tuberculosis Infection: Recommendations from the National Tuberculosis Controllers Association and CDC, 2020",
+      "page_start": 4,
+      "page_end": 5,
+      "quote": "3 months of once-weekly isoniazid plus rifapentine",
+      "supported": true,
+      "validation_status": "quote_verified",
+      "validation_note": null
+    }
+  ],
+  "retrieval": {
+    "strategy": "basic",
+    "retriever": "hybrid",
+    "retrieved_chunks": 3,
+    "expanded_queries": [],
+    "latency_ms": 32.5
+  },
+  "abstained": false,
+  "trace_id": "req-9c4b72ef",
+  "medical_disclaimer": "This system provides information retrieved from published medical literature..."
+}
+```
+
+---
+
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Repository audit | Done |
+| 0 | Repository audit | **Done** |
 | 1 | Foundation: config, logging, domain models, provider, CLI, API, diagnostics | **Done** |
-| 2 | Corpus acquisition, provenance manifest, database schema, migrations | **Done** — 14 documents, Qdrant persistence verified |
+| 2 | Corpus acquisition, provenance manifest, database schema, migrations | **Done** — 20 documents, Qdrant persistence verified |
 | 3A | Corpus expansion, page-range schema, backfill, ingestion config | **Done** — 20 documents, 4 publishers |
 | 3B | Ingestion: PDF parsing, cleaning, chunking, embeddings, Qdrant indexing | **Done** — 20 documents, 2,081 pages, 5,185 chunks |
 | 4A | Retrieval evaluation harness, golden set, dense + sparse baselines | **Done** — 20-question worked example, dense and sparse measured |
-| 4B | Hybrid retrieval with RRF fusion, query rewriting, `POST /query`, Langfuse traces | Not started |
-| 5 | Cross-encoder reranking, HyDE, multi-query, decomposition | Not started |
-| 6 | Grounded generation, citation validation, RAGAS answer metrics, streaming | Not started |
-| 7 | User-facing interface | Not started |
-| 8+ | Security, deployment | Not started |
+| 4B | Hybrid retrieval with RRF fusion, query rewriting, `POST /api/v1/query`, Langfuse traces | **Done** |
+| 5 | Query expansion, HyDE, multi-query, decomposition; reranking (planned) | **Done** (query strategies implemented; cross-encoder reranking planned) |
+| 6 | Grounded generation, strict citation validation, evaluation metrics | **Done** (generation, citation validation & standalone metrics complete; streaming planned) |
+| 7 | User-facing interface | Optional |
+| 8+ | Production hardening & deployment | In progress |
 
 Phase 4A moved this project from claiming nothing to measuring something. Retrieval
 metrics now exist and live in `evals/reports/`, each run recorded with the commit,

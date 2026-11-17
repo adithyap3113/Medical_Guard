@@ -23,7 +23,14 @@ from qdrant_client import QdrantClient, models
 from medguard.config import Settings, get_settings
 from medguard.constants import MEDGUARD_UUID_NAMESPACE
 from medguard.embeddings.base import SparseVector
-from medguard.errors import CollectionMismatchError, VectorStoreError
+from medguard.errors import (
+    CollectionMismatchError,
+    CollectionNotFoundError,
+    VectorStoreAuthError,
+    VectorStoreError,
+    VectorStoreTimeoutError,
+    VectorStoreUnavailableError,
+)
 from medguard.logging import get_logger
 
 __all__ = [
@@ -178,6 +185,72 @@ class VectorStore:
             latency_ms=(time.perf_counter() - started) * 1000,
         )
 
+    def translate_exception(self, exc: Exception, operation: str = "") -> VectorStoreError:
+        """Classify a Qdrant or transport exception into MedGuard's storage exception taxonomy."""
+        if isinstance(exc, VectorStoreError):
+            return exc
+
+        msg = str(exc)
+        lowered = msg.lower()
+        prefix = f"{operation}: " if operation else ""
+
+        # Status code or attribute inspection if available
+        status_code = getattr(exc, "status_code", None)
+        if status_code is None and hasattr(exc, "response"):
+            status_code = getattr(exc.response, "status_code", None)
+
+        if status_code in (401, 403) or any(
+            w in lowered
+            for w in ("unauthorized", "forbidden", "api key", "api_key", "authentication")
+        ):
+            return VectorStoreAuthError(
+                f"{prefix}Qdrant authentication failed at {self.url}: {msg}"
+            )
+
+        if status_code == 404 or any(
+            w in lowered
+            for w in ("doesn't exist", "does not exist", "not found", "collection not found")
+        ):
+            return CollectionNotFoundError(
+                f"{prefix}Collection {self.collection_name!r} not found in Qdrant at {self.url}: {msg}"
+            )
+
+        # Timeout detection
+        if any(w in lowered for w in ("timeout", "timed out", "deadline")) or (
+            "timeout" in type(exc).__name__.lower()
+        ):
+            return VectorStoreTimeoutError(
+                f"{prefix}Qdrant operation timed out at {self.url}: {msg}"
+            )
+
+        # Connectivity / refused / unreachable detection
+        if (
+            any(
+                w in lowered
+                for w in (
+                    "connection refused",
+                    "actively refused",
+                    "10061",
+                    "connecterror",
+                    "failed to connect",
+                    "connection error",
+                    "network unreachable",
+                    "nameresolutionerror",
+                    "nodename nor servname provided",
+                )
+            )
+            or "connect" in type(exc).__name__.lower()
+        ):
+            return VectorStoreUnavailableError(f"{prefix}Qdrant unreachable at {self.url}: {msg}")
+
+        # Server error detection (500, 502, 503)
+        if isinstance(status_code, int) and status_code >= 500:
+            return VectorStoreUnavailableError(
+                f"{prefix}Qdrant server error (HTTP {status_code}): {msg}"
+            )
+
+        return VectorStoreError(f"{prefix}{type(exc).__name__}: {msg}")
+
     def require_healthy(self) -> None:
         """Raise :class:`VectorStoreError` unless Qdrant is reachable.
 
@@ -185,9 +258,37 @@ class VectorStore:
         """
         status = self.health()
         if not status.reachable:
-            raise VectorStoreError(f"Qdrant unreachable at {self.url}: {status.error}")
+            raise self.translate_exception(
+                Exception(status.error or "unreachable"), f"Qdrant unreachable at {self.url}"
+            )
 
     # -- collection lifecycle ------------------------------------------------
+
+    def validate_collection(self) -> None:
+        """Explicit, safe verification that the collection exists and is shaped correctly.
+
+        Unlike ensure_collection(), this method NEVER creates a collection; it strictly validates.
+        Raises:
+            CollectionNotFoundError: if the collection does not exist.
+            CollectionMismatchError: if the collection vector shape does not match.
+            VectorStoreAuthError: if authentication failed.
+            VectorStoreUnavailableError: if Qdrant is unreachable.
+            VectorStoreTimeoutError: if the check timed out.
+        """
+        name = self.collection_name
+        try:
+            exists = self.client.collection_exists(name)
+        except Exception as exc:
+            raise self.translate_exception(exc, f"checking collection {name!r}") from exc
+
+        if not exists:
+            raise CollectionNotFoundError(
+                f"Collection {name!r} does not exist in Qdrant at {self.url}. "
+                "Run 'medguard ingest' to create and index the collection."
+            )
+
+        self._verify_collection(name)
+        log.debug("qdrant.collection_validated", collection=name)
 
     def _expected_vectors(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """The vector configuration this build requires, dense and sparse."""
@@ -224,7 +325,7 @@ class VectorStore:
         try:
             exists = self.client.collection_exists(name)
         except Exception as exc:
-            raise VectorStoreError(f"Qdrant unreachable at {self.url}: {exc}") from exc
+            raise self.translate_exception(exc, f"checking collection {name!r}") from exc
 
         if exists:
             self._verify_collection(name)
@@ -246,10 +347,16 @@ class VectorStore:
         except Exception as exc:
             # A concurrent creator is a success, not a failure: both callers wanted the
             # collection to exist, and it now does.
-            if self.client.collection_exists(name):
+            try:
+                still_exists = self.client.collection_exists(name)
+            except Exception:  # noqa: BLE001
+                still_exists = False
+            if still_exists:
                 self._verify_collection(name)
             else:
-                raise VectorStoreError(f"could not create collection {name!r}: {exc}") from exc
+                raise self.translate_exception(
+                    exc, f"could not create collection {name!r}"
+                ) from exc
 
         self._ensure_payload_indexes(name)
         log.info("qdrant.collection_ready", collection=name)
@@ -260,7 +367,9 @@ class VectorStore:
             info: Any = self.client.get_collection(name)
             config = info.config.params
         except Exception as exc:
-            raise VectorStoreError(f"could not read collection {name!r}: {exc}") from exc
+            if isinstance(exc, CollectionMismatchError):
+                raise
+            raise self.translate_exception(exc, f"could not read collection {name!r}") from exc
 
         vectors = config.vectors or {}
         if not isinstance(vectors, dict) or DENSE_VECTOR not in vectors:
@@ -415,8 +524,8 @@ class VectorStore:
                 exact=True,
             )
         except Exception as exc:
-            raise VectorStoreError(
-                f"count for document {document_id!r} failed: {type(exc).__name__}: {exc}"
+            raise self.translate_exception(
+                exc, f"count for document {document_id!r} failed"
             ) from exc
         return int(result.count)
 
@@ -429,8 +538,8 @@ class VectorStore:
         try:
             return int(self.client.count(collection_name=self.collection_name, exact=True).count)
         except Exception as exc:
-            raise VectorStoreError(
-                f"count for collection {self.collection_name!r} failed: {type(exc).__name__}: {exc}"
+            raise self.translate_exception(
+                exc, f"count for collection {self.collection_name!r} failed"
             ) from exc
 
     # -- Phase 4A: the read path ---------------------------------------------
@@ -460,7 +569,7 @@ class VectorStore:
         """
         expected = self._s.embedding.dimension
         if len(query_vector) != expected:
-            raise VectorStoreError(
+            raise CollectionMismatchError(
                 f"dense query vector has {len(query_vector)} dimensions, but collection "
                 f"{self.collection_name!r} stores {expected}; the query was embedded by "
                 f"a different model than the index"
@@ -510,9 +619,8 @@ class VectorStore:
                 with_payload=True,
             )
         except Exception as exc:
-            raise VectorStoreError(
-                f"search on {using!r} in {self.collection_name!r} failed: "
-                f"{type(exc).__name__}: {exc}"
+            raise self.translate_exception(
+                exc, f"search on {using!r} in {self.collection_name!r} failed"
             ) from exc
         return list(response.points)
 

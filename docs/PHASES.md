@@ -26,11 +26,11 @@ reading, for no gain a reader could not get from this page.
 | 3A | Corpus expansion, page-range schema, backfill, ingestion config | Done |
 | 3B | Ingestion: PDF parsing, cleaning, chunking, embeddings, Qdrant indexing | Done |
 | **4A** | **Retrieval evaluation harness, golden set, dense + sparse baselines** | **Done** |
-| 4B | Hybrid retrieval with RRF fusion, query rewriting, `POST /query`, Langfuse spans | Not started |
-| 5 | Cross-encoder reranking; HyDE, multi-query, decomposition | Not started |
-| 6 | Grounded generation, citation validation, RAGAS answer metrics, streaming | Not started |
-| 7 | User-facing interface | Not started |
-| 8+ | Security hardening, deployment | Not started |
+| 4B | Hybrid retrieval with RRF fusion, query rewriting, `POST /api/v1/query`, Langfuse spans | Done |
+| 5 | Advanced query strategies (HyDE, multi-query, decomposition); reranking (planned) | Implemented (query strategies) / Planned (reranking) |
+| 6 | Grounded generation, strict citation validation, evaluation metrics | Done (generation, citation validation, evaluation metrics) / Streaming (planned) |
+| 7 | User-facing interface (web UI) | Planned |
+| 8+ | Production hardening & deployment | In progress |
 
 ## What Phase 4A delivered
 
@@ -44,14 +44,16 @@ reading, for no gain a reader could not get from this page.
 - A 20-question worked example at `evals/golden_set_v1.jsonl` — LLM-drafted, **not yet
   human-reviewed** — and the first recorded dense and sparse baselines.
 
-## What Phase 4A deliberately did not do
+## What Phase 4B, 5, and 6 delivered
 
-- No hybrid retrieval or RRF fusion, no query rewriting, no `POST /query`, no Langfuse
-  instrumentation. All Phase 4B.
-- No reranking, and no HyDE, multi-query or decomposition. Phase 5.
-- No answer generation and no answer-quality metrics. Phase 6.
-- No publication-date filter: 9 of 20 documents state no date, and a Qdrant range
-  condition drops all of them silently. See `evals/README.md`.
-- `check_index` was left non-critical in `medguard doctor`. It becomes critical in 4B,
-  when a drifted index starts serving user-facing queries rather than only evaluation
-  runs.
+- **Phase 4B:** Hybrid retrieval combining dense (BGE-small-en-v1.5) and sparse (Qdrant BM25) vectors via Reciprocal Rank Fusion (RRF k=60), query rewriting, `POST /api/v1/query` FastAPI endpoint, and CLI `medguard query` command.
+- **Phase 5:** Query strategies (`basic`, `rewrite`, `multi_query`, `decomposition`, `hyde`). Note: Cross-encoder reranking was intentionally deferred to avoid excessive memory on CPU.
+- **Phase 6:** Grounded generation with XML prompt delimiter escaping, conservative citation validation (verifying candidate chunk, document ID, page span, and Unicode/whitespace-normalized quote matching), and standalone evaluation metrics.
+
+## Experimental / Future Items
+
+- Cross-encoder reranking is not yet implemented (evaluated for CPU memory constraints).
+- Full token-by-token streaming is planned.
+- Semantic entailment validation beyond quote matching is planned.
+- Publication-date filtering: 9 of 20 documents state no date, so date range filtering is disabled to prevent dropping them silently.
+

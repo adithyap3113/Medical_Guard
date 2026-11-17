@@ -21,6 +21,7 @@ from __future__ import annotations
 __all__ = [
     "ChunkingError",
     "CollectionMismatchError",
+    "CollectionNotFoundError",
     "ConfigurationError",
     "CorpusError",
     "EmbeddingError",
@@ -41,7 +42,10 @@ __all__ = [
     "ProviderUnavailableError",
     "RetrievalError",
     "SourceUnavailableError",
+    "VectorStoreAuthError",
     "VectorStoreError",
+    "VectorStoreTimeoutError",
+    "VectorStoreUnavailableError",
 ]
 
 
@@ -218,6 +222,32 @@ class VectorStoreError(MedGuardError):
     """The vector database is unreachable or rejected an operation."""
 
     user_message = "The knowledge index is temporarily unavailable."
+
+
+class VectorStoreUnavailableError(VectorStoreError):
+    """The vector database is unreachable, connection was refused, or server is down."""
+
+    user_message = "The vector database is currently unreachable."
+
+
+class VectorStoreAuthError(VectorStoreError):
+    """Authentication or authorization to the vector database failed."""
+
+    user_message = "Authentication to the vector database failed."
+
+
+class VectorStoreTimeoutError(VectorStoreUnavailableError):
+    """The operation against the vector database timed out."""
+
+    user_message = "The request to the vector database timed out."
+
+
+class CollectionNotFoundError(VectorStoreError):
+    """The required Qdrant collection does not exist."""
+
+    user_message = (
+        "The required medical guideline collection does not exist in the vector database."
+    )
 
 
 class CollectionMismatchError(VectorStoreError):

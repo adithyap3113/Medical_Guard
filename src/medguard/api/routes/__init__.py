@@ -2,4 +2,6 @@
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from medguard.api.routes import health, query
+
+__all__: list[str] = ["health", "query"]

@@ -147,29 +147,20 @@ class TestDoctorCommand:
         assert __version__ in result.output
 
 
-class TestUnimplementedCommands:
-    """Stubs must fail loudly and say which phase implements them."""
-
-    @pytest.mark.parametrize(
-        ("argv", "phase"),
-        [
-            # `ingest` left this list in Phase 3B and `eval` in Phase 4A: both are
-            # implemented, and both have their own tests. `query` is the last stub --
-            # it needs answer synthesis, which is Phase 6.
-            (["query", "what is hypertension?"], "Phases 5-11"),
-        ],
-    )
-    def test_stub_raises_not_implemented(self, argv: list[str], phase: str) -> None:
-        result = runner.invoke(app, argv)
-        assert result.exit_code != 0
-        assert isinstance(result.exception, NotImplementedError)
-        assert phase in str(result.exception)
+class TestCommandsImplemented:
+    """All core CLI commands are fully implemented and registered."""
 
     def test_eval_is_no_longer_a_stub(self) -> None:
         """Phase 4A replaced it. Invoked with a path that does not exist, so this
         exercises the real command's error handling rather than a retrieval run."""
         result = runner.invoke(app, ["eval", "--dataset", "does/not/exist.jsonl"])
         assert result.exit_code == 1
+        assert not isinstance(result.exception, NotImplementedError)
+
+    def test_query_is_no_longer_a_stub(self) -> None:
+        """Phase 6 replaced it. Invoked with --help to exercise the real command's registration."""
+        result = runner.invoke(app, ["query", "--help"])
+        assert result.exit_code == 0
         assert not isinstance(result.exception, NotImplementedError)
 
     def test_commands_are_registered_with_real_signatures(self) -> None:

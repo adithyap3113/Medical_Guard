@@ -17,13 +17,13 @@ import typer
 
 from medguard import __version__
 from medguard.cli.bootstrap import bootstrap as _bootstrap
-from medguard.cli.bootstrap import console, err_console
+from medguard.cli.bootstrap import console
 from medguard.cli.corpus import corpus_app
 from medguard.cli.db import db_app
 from medguard.cli.eval import eval_
 from medguard.cli.ingest import ingest
+from medguard.cli.query import query_command
 from medguard.config import get_settings
-from medguard.models import MEDICAL_DISCLAIMER, QueryStrategy
 
 __all__ = ["app"]
 
@@ -57,6 +57,7 @@ def main(
     ] = False,
 ) -> None:
     """MedGuard CLI."""
+    _bootstrap()
 
 
 @app.command()
@@ -122,29 +123,7 @@ def serve(
 # Registered from its own module: the command body imports the pipeline, the embedders
 # and ONNX Runtime, and none of that should load for `medguard --help`.
 app.command()(ingest)
-
-
-# ---------------------------------------------------------------------------
-# Declared now, implemented in later phases.
-# ---------------------------------------------------------------------------
-
-
-@app.command()
-def query(
-    question: Annotated[str, typer.Argument(help="The question to answer.")],
-    strategy: Annotated[
-        QueryStrategy, typer.Option(help="Query-processing strategy.")
-    ] = QueryStrategy.BASIC,
-    top_k: Annotated[int, typer.Option(min=1, max=100, help="Chunks to retrieve.")] = 5,
-) -> None:
-    """[dim]Phase 5-11[/] — Answer a question with cited evidence."""
-    _bootstrap()
-    err_console.print(
-        f"[yellow]Not implemented yet.[/] Retrieval and grounded generation land in "
-        f"Phases 5-11 (question: {question!r}, strategy: {strategy.value}, top_k: {top_k})."
-    )
-    err_console.print(f"[dim]{MEDICAL_DISCLAIMER}[/]")
-    raise NotImplementedError("Querying is implemented in Phases 5-11.")
+app.command(name="query")(query_command)
 
 
 if __name__ == "__main__":  # pragma: no cover
